@@ -1,0 +1,14 @@
+# Build artifacts
+build/
+dist/
+*.o
+*.obj
+*.exe
+*.bin
+
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.*
