@@ -26,6 +26,52 @@ static int address_in_region(
     return offset < region_size && size <= region_size - offset;
 }
 
+static int is_initial_register_allowed(int register_id)
+{
+    switch (register_id) {
+        case UC_X86_REG_RAX:
+        case UC_X86_REG_RBX:
+        case UC_X86_REG_RCX:
+        case UC_X86_REG_RDX:
+        case UC_X86_REG_RSI:
+        case UC_X86_REG_RDI:
+        case UC_X86_REG_RBP:
+        case UC_X86_REG_R8:
+        case UC_X86_REG_R9:
+        case UC_X86_REG_R10:
+        case UC_X86_REG_R11:
+        case UC_X86_REG_R12:
+        case UC_X86_REG_R13:
+        case UC_X86_REG_R14:
+        case UC_X86_REG_R15:
+            return 1;
+
+        default:
+            return 0;
+    }
+}
+
+static int vm_has_loaded_code(const TinyVM *vm)
+{
+    return vm != NULL &&
+           vm->uc != NULL &&
+           vm->code_address != 0 &&
+           vm->code_end > vm->code_address;
+}
+
+static int address_is_writable(
+    const TinyVM *vm,
+    uint64_t address,
+    size_t size
+)
+{
+    return address_in_region(
+        address, size, vm->data_address, vm->data_size
+    ) || address_in_region(
+        address, size, vm->stack_address, vm->stack_size
+    );
+}
+
 int vm_create(TinyVM *vm)
 {
     if (vm == NULL) {
@@ -101,6 +147,7 @@ int vm_load_code(TinyVM *vm, const uint8_t *code, size_t code_size)
     }
 
     uint64_t rsp = STACK_ADDRESS + STACK_SIZE;
+
     err = uc_reg_write(vm->uc, UC_X86_REG_RSP, &rsp);
 
     if (err != UC_ERR_OK) {
@@ -109,6 +156,7 @@ int vm_load_code(TinyVM *vm, const uint8_t *code, size_t code_size)
     }
 
     uint64_t rip = CODE_ADDRESS;
+
     err = uc_reg_write(vm->uc, UC_X86_REG_RIP, &rip);
 
     if (err != UC_ERR_OK) {
@@ -141,6 +189,61 @@ error:
     return 1;
 }
 
+int vm_set_register(TinyVM *vm, int register_id, uint64_t value)
+{
+    if (!vm_has_loaded_code(vm) ||
+        vm->status != VM_STATUS_READY ||
+        vm->instruction_count != 0) {
+        fprintf(stderr, "Cannot set register in current VM state\n");
+        return 1;
+    }
+
+    if (!is_initial_register_allowed(register_id)) {
+        fprintf(stderr, "Register cannot be initialized through this API\n");
+        return 1;
+    }
+
+    uc_err err = uc_reg_write(vm->uc, register_id, &value);
+
+    if (err != UC_ERR_OK) {
+        fprintf(stderr, "Failed to set register: %s\n", uc_strerror(err));
+        return 1;
+    }
+
+    return 0;
+}
+
+int vm_initialize_memory(
+    TinyVM *vm,
+    uint64_t address,
+    const void *buffer,
+    size_t size
+)
+{
+    if (!vm_has_loaded_code(vm) ||
+        vm->status != VM_STATUS_READY ||
+        vm->instruction_count != 0 ||
+        buffer == NULL ||
+        size == 0) {
+        fprintf(stderr, "Cannot initialize memory in current VM state\n");
+        return 1;
+    }
+
+    if (!address_is_writable(vm, address, size)) {
+        fprintf(stderr, "Initial data is outside writable memory regions\n");
+        return 1;
+    }
+
+    uc_err err = uc_mem_write(vm->uc, address, buffer, size);
+
+    if (err != UC_ERR_OK) {
+        fprintf(stderr, "Failed to initialize memory: %s\n", uc_strerror(err));
+        return 1;
+    }
+
+    return 0;
+}
+
 int vm_step(TinyVM *vm)
 {
     if (vm == NULL || vm->uc == NULL) {
@@ -153,7 +256,7 @@ int vm_step(TinyVM *vm)
         return 1;
     }
 
-    if (vm->code_address == 0 || vm->code_end <= vm->code_address) {
+    if (!vm_has_loaded_code(vm)) {
         fprintf(stderr, "No code loaded into VM\n");
         vm->status = VM_STATUS_ERROR;
         return 1;
@@ -287,13 +390,15 @@ int vm_get_registers(TinyVM *vm, VMRegisters *registers)
 
 int vm_read_memory(TinyVM *vm, uint64_t address, void *buffer, size_t size)
 {
-    if (vm == NULL || vm->uc == NULL || buffer == NULL || size == 0) {
+    if (!vm_has_loaded_code(vm) || buffer == NULL || size == 0) {
         return 1;
     }
 
     int allowed =
-        address_in_region(address, size, vm->code_address,
-                          (size_t)(vm->code_end - vm->code_address)) ||
+        address_in_region(
+            address, size, vm->code_address,
+            (size_t)(vm->code_end - vm->code_address)
+        ) ||
         address_in_region(address, size, vm->data_address, vm->data_size) ||
         address_in_region(address, size, vm->stack_address, vm->stack_size);
 
@@ -314,15 +419,11 @@ int vm_read_memory(TinyVM *vm, uint64_t address, void *buffer, size_t size)
 
 int vm_write_memory(TinyVM *vm, uint64_t address, const void *buffer, size_t size)
 {
-    if (vm == NULL || vm->uc == NULL || buffer == NULL || size == 0) {
+    if (!vm_has_loaded_code(vm) || buffer == NULL || size == 0) {
         return 1;
     }
 
-    int allowed =
-        address_in_region(address, size, vm->data_address, vm->data_size) ||
-        address_in_region(address, size, vm->stack_address, vm->stack_size);
-
-    if (!allowed) {
+    if (!address_is_writable(vm, address, size)) {
         fprintf(stderr, "Memory write is outside writable regions\n");
         return 1;
     }

@@ -49,6 +49,8 @@ typedef struct {
 
 int vm_create(TinyVM *vm);
 int vm_load_code(TinyVM *vm, const uint8_t *code, size_t code_size);
+int vm_set_register(TinyVM *vm, int register_id, uint64_t value);
+int vm_initialize_memory(TinyVM *vm, uint64_t address, const void *buffer, size_t size);
 int vm_step(TinyVM *vm);
 int vm_get_registers(TinyVM *vm, VMRegisters *registers);
 int vm_read_memory(TinyVM *vm, uint64_t address, void *buffer, size_t size);
