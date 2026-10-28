@@ -1,70 +1,88 @@
+
+#include "disasm.h"
+#include "vm.h"
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <unicorn/unicorn.h>
-#include <capstone/capstone.h>
+#include <stdlib.h>
 
-#define CODE_ADDRESS 0x100000
-#define MEMORY_SIZE  0x1000
-#define MAX_INSTRUCTIONS 1000
+#define MAX_CODE_SIZE 0x1000
 
-static void print_registers(uc_engine *uc)
+static int print_registers(TinyVM *vm)
 {
-    uint64_t rax = 0;
-    uint64_t rip = 0;
+    VMRegisters r = {0};
 
-    uc_reg_read(uc, UC_X86_REG_RAX, &rax);
-    uc_reg_read(uc, UC_X86_REG_RIP, &rip);
+    if (vm_get_registers(vm, &r) != 0) return 1;
 
-    printf("RAX = %" PRIu64 ", RIP = 0x%" PRIx64 "\n", rax, rip);
-}
+    printf("RAX = 0x%016" PRIx64 "  RBX = 0x%016" PRIx64 "\n", r.rax, r.rbx);
+    printf("RCX = 0x%016" PRIx64 "  RDX = 0x%016" PRIx64 "\n", r.rcx, r.rdx);
+    printf("RSI = 0x%016" PRIx64 "  RDI = 0x%016" PRIx64 "\n", r.rsi, r.rdi);
+    printf("RBP = 0x%016" PRIx64 "  RSP = 0x%016" PRIx64 "\n", r.rbp, r.rsp);
+    printf("R8  = 0x%016" PRIx64 "  R9  = 0x%016" PRIx64 "\n", r.r8, r.r9);
+    printf("R10 = 0x%016" PRIx64 "  R11 = 0x%016" PRIx64 "\n", r.r10, r.r11);
+    printf("R12 = 0x%016" PRIx64 "  R13 = 0x%016" PRIx64 "\n", r.r12, r.r13);
+    printf("R14 = 0x%016" PRIx64 "  R15 = 0x%016" PRIx64 "\n", r.r14, r.r15);
+    printf("RIP = 0x%016" PRIx64 "  RFLAGS = 0x%016" PRIx64 "\n",
+           r.rip, r.rflags);
 
-static int print_instruction(csh handle, uc_engine *uc, uint64_t rip)
-{
-    uint8_t buffer[15] = {0};
-
-    uc_err err = uc_mem_read(uc, rip, buffer, sizeof(buffer));
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "Cannot read instruction: %s\n", uc_strerror(err));
-        return 1;
-    }
-
-    cs_insn *instructions = NULL;
-
-    size_t count = cs_disasm(
-        handle,
-        buffer,
-        sizeof(buffer),
-        rip,
-        1,
-        &instructions
-    );
-
-    if (count == 0) {
-        fprintf(stderr, "Cannot disassemble instruction at 0x%" PRIx64 "\n", rip);
-        return 1;
-    }
-
-    printf("0x%" PRIx64 ": %s %s\n",
-           instructions[0].address,
-           instructions[0].mnemonic,
-           instructions[0].op_str);
-
-    cs_free(instructions, count);
     return 0;
 }
 
-int main(void)
+static int load_binary(const char *path, uint8_t *buffer, size_t *code_size)
 {
-    const uint8_t code[] = {
-        0x48, 0xC7, 0xC0, 0x64, 0x00, 0x00, 0x00,
-        0x48, 0x83, 0xC0, 0x05,
-        0x48, 0x83, 0xE8, 0x0A,
-        0x48, 0x83, 0xC0, 0x01
-    };
+    FILE *file = fopen(path, "rb");
+
+    if (file == NULL) {
+        perror("Cannot open binary file");
+        return 1;
+    }
+
+    size_t size = fread(buffer, 1, MAX_CODE_SIZE, file);
+
+    if (ferror(file)) {
+        fprintf(stderr, "Failed to read binary file\n");
+        fclose(file);
+        return 1;
+    }
+
+    if (size == 0) {
+        fprintf(stderr, "Binary file is empty\n");
+        fclose(file);
+        return 1;
+    }
+
+    // Проверяем, что файл не превышает допустимый размер.
+    if (fgetc(file) != EOF) {
+        fprintf(stderr, "Binary file exceeds %d bytes\n", MAX_CODE_SIZE);
+        fclose(file);
+        return 1;
+    }
+
+    if (ferror(file)) {
+        fprintf(stderr, "Failed to check binary file size\n");
+        fclose(file);
+        return 1;
+    }
+
+    fclose(file);
+    *code_size = size;
+
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <binary-file>\n", argv[0]);
+        return 1;
+    }
+
+    uint8_t code[MAX_CODE_SIZE] = {0};
+    size_t code_size = 0;
+
+    if (load_binary(argv[1], code, &code_size) != 0) return 1;
 
     csh handle;
-
     cs_err cs_error = cs_open(CS_ARCH_X86, CS_MODE_64, &handle);
 
     if (cs_error != CS_ERR_OK) {
@@ -72,84 +90,55 @@ int main(void)
         return 1;
     }
 
-    printf("Capstone initialized successfully!\n");
+    TinyVM vm = {0};
+    int result = 1;
 
-    uc_engine *uc = NULL;
-    uc_err err = uc_open(UC_ARCH_X86, UC_MODE_64, &uc);
+    if (vm_create(&vm) != 0) goto cleanup;
+    if (vm_load_code(&vm, code, code_size) != 0) goto cleanup;
 
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "uc_open: %s\n", uc_strerror(err));
-        return 1;
-    }
-
-    err = uc_mem_map(uc, CODE_ADDRESS, MEMORY_SIZE, UC_PROT_ALL);
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "uc_mem_map: %s\n", uc_strerror(err));
-        uc_close(uc);
-        return 1;
-    }
-
-    err = uc_mem_write(uc, CODE_ADDRESS, code, sizeof(code));
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "uc_mem_write: %s\n", uc_strerror(err));
-        uc_close(uc);
-        return 1;
-    }
-
-    uint64_t rip = CODE_ADDRESS;
-    uint64_t rax = 0;
-
-    uc_reg_write(uc, UC_X86_REG_RIP, &rip);
-    uc_reg_write(uc, UC_X86_REG_RAX, &rax);
+    printf("Loaded %zu bytes from %s\n", code_size, argv[1]);
 
     printf("Initial state:\n");
-    print_registers(uc);
-
-    const uint64_t code_end = CODE_ADDRESS + sizeof(code);
-
-    int step = 0;
+    if (print_registers(&vm) != 0) goto cleanup;
 
     while (1) {
-        err = uc_reg_read(uc, UC_X86_REG_RIP, &rip);
+        VMRegisters registers = {0};
 
-        if (err != UC_ERR_OK) {
-            fprintf(stderr, "Failed to read RIP: %s\n", uc_strerror(err));
-            uc_close(uc);
-            return 1;
+        if (vm_get_registers(&vm, &registers) != 0) goto cleanup;
+
+        uint64_t rip = registers.rip;
+
+        if (rip == vm.code_end) break;
+
+        if (rip < vm.code_address || rip > vm.code_end) {
+            fprintf(stderr, "RIP is outside the loaded code\n");
+            goto cleanup;
         }
 
-        if (rip >= code_end) {
-            break;
-        }
-        
-        if (step >= MAX_INSTRUCTIONS) {
-            fprintf(stderr, "Instruction limit exceeded (%d)\n",
-                    MAX_INSTRUCTIONS);
-            cs_close(&handle);
-            uc_close(uc);
-            return 1;
+        if (vm.instruction_count >= vm.instruction_limit) {
+            fprintf(stderr, "Instruction limit exceeded (%zu)\n",
+                    vm.instruction_limit);
+            goto cleanup;
         }
 
-        if (print_instruction(handle, uc, rip) != 0) {
-            cs_close(&handle);
-            uc_close(uc);
-            return 1;
-        }
+        if (disasm_print_instruction(handle, vm.uc, rip, vm.code_end) != 0)
+            goto cleanup;
 
-        err = uc_emu_start(uc, rip, code_end, 0, 1);
+        if (vm_step(&vm) != 0) goto cleanup;
 
-        if (err != UC_ERR_OK) {
-            fprintf(stderr, "Step failed: %s\n", uc_strerror(err));
-            uc_close(uc);
-            return 1;
-        }
+        printf("After step %zu:\n", vm.instruction_count);
 
-        step++;
-        printf("After step %d:\n", step);
-        print_registers(uc);
+        if (print_registers(&vm) != 0) goto cleanup;
     }
 
+    printf("Execution finished successfully (%zu instructions)\n",
+           vm.instruction_count);
+
+    result = 0;
+
+cleanup:
+    vm_destroy(&vm);
     cs_close(&handle);
-    uc_close(uc);
-    return 0;
+
+    return result;
 }
