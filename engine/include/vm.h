@@ -5,6 +5,14 @@
 #include <stdint.h>
 #include <unicorn/unicorn.h>
 
+typedef enum {
+    VM_STATUS_READY,
+    VM_STATUS_RUNNING,
+    VM_STATUS_FINISHED,
+    VM_STATUS_LIMIT_EXCEEDED,
+    VM_STATUS_ERROR
+} VMStatus;
+
 typedef struct {
     uint64_t rax;
     uint64_t rbx;
@@ -28,12 +36,15 @@ typedef struct {
 
 typedef struct {
     uc_engine *uc;
+    VMStatus status;
     uint64_t code_address;
     uint64_t code_end;
-    size_t instruction_count;
-    size_t instruction_limit;
+    uint64_t data_address;
+    size_t data_size;
     uint64_t stack_address;
     size_t stack_size;
+    size_t instruction_count;
+    size_t instruction_limit;
 } TinyVM;
 
 int vm_create(TinyVM *vm);
@@ -41,6 +52,9 @@ int vm_load_code(TinyVM *vm, const uint8_t *code, size_t code_size);
 int vm_step(TinyVM *vm);
 int vm_get_registers(TinyVM *vm, VMRegisters *registers);
 int vm_read_memory(TinyVM *vm, uint64_t address, void *buffer, size_t size);
+int vm_write_memory(TinyVM *vm, uint64_t address, const void *buffer, size_t size);
+int vm_run(TinyVM *vm);
+const char *vm_status_string(VMStatus status);
 void vm_destroy(TinyVM *vm);
 
 #endif

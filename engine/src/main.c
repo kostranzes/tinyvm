@@ -1,6 +1,5 @@
-
-#include "disasm.h"
 #include "vm.h"
+
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -8,137 +7,161 @@
 
 #define MAX_CODE_SIZE 0x1000
 
-static int print_registers(TinyVM *vm)
+static void print_error(const char *error)
 {
-    VMRegisters r = {0};
-
-    if (vm_get_registers(vm, &r) != 0) return 1;
-
-    printf("RAX = 0x%016" PRIx64 "  RBX = 0x%016" PRIx64 "\n", r.rax, r.rbx);
-    printf("RCX = 0x%016" PRIx64 "  RDX = 0x%016" PRIx64 "\n", r.rcx, r.rdx);
-    printf("RSI = 0x%016" PRIx64 "  RDI = 0x%016" PRIx64 "\n", r.rsi, r.rdi);
-    printf("RBP = 0x%016" PRIx64 "  RSP = 0x%016" PRIx64 "\n", r.rbp, r.rsp);
-    printf("R8  = 0x%016" PRIx64 "  R9  = 0x%016" PRIx64 "\n", r.r8, r.r9);
-    printf("R10 = 0x%016" PRIx64 "  R11 = 0x%016" PRIx64 "\n", r.r10, r.r11);
-    printf("R12 = 0x%016" PRIx64 "  R13 = 0x%016" PRIx64 "\n", r.r12, r.r13);
-    printf("R14 = 0x%016" PRIx64 "  R15 = 0x%016" PRIx64 "\n", r.r14, r.r15);
-    printf("RIP = 0x%016" PRIx64 "  RFLAGS = 0x%016" PRIx64 "\n",
-           r.rip, r.rflags);
-
-    return 0;
+    printf(
+        "{\"status\":\"error\",\"error\":\"%s\","
+        "\"instruction_count\":0,\"registers\":null}\n",
+        error
+    );
 }
 
-static int load_binary(const char *path, uint8_t *buffer, size_t *code_size)
+static int load_binary(const char *path, uint8_t *buffer, size_t capacity, size_t *size)
 {
     FILE *file = fopen(path, "rb");
 
     if (file == NULL) {
-        perror("Cannot open binary file");
-        return 1;
+        fprintf(stderr, "Cannot open binary file: %s\n", path);
+        return -1;
     }
 
-    size_t size = fread(buffer, 1, MAX_CODE_SIZE, file);
+    size_t bytes_read = fread(buffer, 1, capacity, file);
 
     if (ferror(file)) {
-        fprintf(stderr, "Failed to read binary file\n");
+        fprintf(stderr, "Cannot read binary file: %s\n", path);
         fclose(file);
-        return 1;
+        return -1;
     }
 
-    if (size == 0) {
-        fprintf(stderr, "Binary file is empty\n");
+    if (bytes_read == 0) {
+        fprintf(stderr, "Binary file is empty: %s\n", path);
         fclose(file);
-        return 1;
+        return -1;
     }
 
-    // Проверяем, что файл не превышает допустимый размер.
-    if (fgetc(file) != EOF) {
-        fprintf(stderr, "Binary file exceeds %d bytes\n", MAX_CODE_SIZE);
-        fclose(file);
-        return 1;
+    if (bytes_read == capacity) {
+        int extra_byte = fgetc(file);
+
+        if (extra_byte != EOF) {
+            fprintf(stderr, "Binary file exceeds the maximum size of %zu bytes\n", capacity);
+            fclose(file);
+            return -1;
+        }
+
+        if (ferror(file)) {
+            fprintf(stderr, "Cannot read binary file: %s\n", path);
+            fclose(file);
+            return -1;
+        }
     }
 
-    if (ferror(file)) {
-        fprintf(stderr, "Failed to check binary file size\n");
-        fclose(file);
-        return 1;
+    if (fclose(file) != 0) {
+        fprintf(stderr, "Cannot close binary file: %s\n", path);
+        return -1;
     }
 
-    fclose(file);
-    *code_size = size;
-
+    *size = bytes_read;
     return 0;
+}
+
+static void print_register(const char *name, uint64_t value, int *first)
+{
+    printf("%s\"%s\":\"0x%016" PRIx64 "\"", *first ? "" : ",", name, value);
+    *first = 0;
+}
+
+static int print_result(TinyVM *vm)
+{
+    VMRegisters registers;
+
+    if (vm_get_registers(vm, &registers) != 0) {
+        fprintf(stderr, "Cannot read VM registers\n");
+        print_error("register_read_failed");
+        return 1;
+    }
+
+    const char *status = vm_status_string(vm->status);
+    const char *error = NULL;
+
+    if (vm->status == VM_STATUS_LIMIT_EXCEEDED) {
+        error = "instruction_limit_exceeded";
+    } else if (vm->status == VM_STATUS_ERROR) {
+        error = "execution_failed";
+    } else if (vm->status != VM_STATUS_FINISHED) {
+        error = "unexpected_execution_status";
+    }
+
+    printf("{\"status\":\"%s\",\"error\":", status);
+
+    if (error == NULL) {
+        printf("null");
+    } else {
+        printf("\"%s\"", error);
+    }
+
+    printf(",\"instruction_count\":%zu,\"registers\":{", vm->instruction_count);
+
+    int first = 1;
+
+    print_register("rax", registers.rax, &first);
+    print_register("rbx", registers.rbx, &first);
+    print_register("rcx", registers.rcx, &first);
+    print_register("rdx", registers.rdx, &first);
+    print_register("rsi", registers.rsi, &first);
+    print_register("rdi", registers.rdi, &first);
+    print_register("rbp", registers.rbp, &first);
+    print_register("rsp", registers.rsp, &first);
+    print_register("r8", registers.r8, &first);
+    print_register("r9", registers.r9, &first);
+    print_register("r10", registers.r10, &first);
+    print_register("r11", registers.r11, &first);
+    print_register("r12", registers.r12, &first);
+    print_register("r13", registers.r13, &first);
+    print_register("r14", registers.r14, &first);
+    print_register("r15", registers.r15, &first);
+    print_register("rip", registers.rip, &first);
+    print_register("rflags", registers.rflags, &first);
+
+    printf("}}\n");
+
+    return vm->status == VM_STATUS_FINISHED ? 0 : 1;
 }
 
 int main(int argc, char **argv)
 {
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <binary-file>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <binary_file>\n", argv[0]);
+        print_error("invalid_arguments");
         return 1;
     }
 
-    uint8_t code[MAX_CODE_SIZE] = {0};
+    uint8_t code[MAX_CODE_SIZE];
     size_t code_size = 0;
 
-    if (load_binary(argv[1], code, &code_size) != 0) return 1;
-
-    csh handle;
-    cs_err cs_error = cs_open(CS_ARCH_X86, CS_MODE_64, &handle);
-
-    if (cs_error != CS_ERR_OK) {
-        fprintf(stderr, "Failed to initialize Capstone\n");
+    if (load_binary(argv[1], code, sizeof(code), &code_size) != 0) {
+        print_error("binary_load_failed");
         return 1;
     }
 
-    TinyVM vm = {0};
-    int result = 1;
+    TinyVM vm;
 
-    if (vm_create(&vm) != 0) goto cleanup;
-    if (vm_load_code(&vm, code, code_size) != 0) goto cleanup;
-
-    printf("Loaded %zu bytes from %s\n", code_size, argv[1]);
-
-    printf("Initial state:\n");
-    if (print_registers(&vm) != 0) goto cleanup;
-
-    while (1) {
-        VMRegisters registers = {0};
-
-        if (vm_get_registers(&vm, &registers) != 0) goto cleanup;
-
-        uint64_t rip = registers.rip;
-
-        if (rip == vm.code_end) break;
-
-        if (rip < vm.code_address || rip > vm.code_end) {
-            fprintf(stderr, "RIP is outside the loaded code\n");
-            goto cleanup;
-        }
-
-        if (vm.instruction_count >= vm.instruction_limit) {
-            fprintf(stderr, "Instruction limit exceeded (%zu)\n",
-                    vm.instruction_limit);
-            goto cleanup;
-        }
-
-        if (disasm_print_instruction(handle, vm.uc, rip, vm.code_end) != 0)
-            goto cleanup;
-
-        if (vm_step(&vm) != 0) goto cleanup;
-
-        printf("After step %zu:\n", vm.instruction_count);
-
-        if (print_registers(&vm) != 0) goto cleanup;
+    if (vm_create(&vm) != 0) {
+        fprintf(stderr, "Cannot initialize VM\n");
+        print_error("vm_initialization_failed");
+        return 1;
     }
 
-    printf("Execution finished successfully (%zu instructions)\n",
-           vm.instruction_count);
+    if (vm_load_code(&vm, code, code_size) != 0) {
+        fprintf(stderr, "Cannot load code into VM\n");
+        print_error("code_load_failed");
+        vm_destroy(&vm);
+        return 1;
+    }
 
-    result = 0;
+    vm_run(&vm);
 
-cleanup:
+    int result = print_result(&vm);
+
     vm_destroy(&vm);
-    cs_close(&handle);
-
     return result;
 }

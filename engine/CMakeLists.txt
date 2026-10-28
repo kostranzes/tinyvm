@@ -1,4 +1,3 @@
-
 cmake_minimum_required(VERSION 3.20)
 
 project(tinyvm LANGUAGES C)
@@ -47,4 +46,16 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME vm-tests COMMAND tinyvm-tests)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    find_program(NASM_EXECUTABLE nasm REQUIRED)
+
+    add_test(
+        NAME cli-tests
+        COMMAND
+            ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cli.py
+            $<TARGET_FILE:tinyvm-engine>
+            ${NASM_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/sample.asm
+    )
 endif()
