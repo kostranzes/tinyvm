@@ -41,14 +41,28 @@ target_compile_options(tinyvm-engine PRIVATE
     -Wpedantic
 )
 
+add_library(tinyvm-protocol STATIC
+    src/protocol_json.c
+)
+
+target_include_directories(tinyvm-protocol PUBLIC include)
+
+target_link_libraries(tinyvm-protocol PUBLIC
+    tinyvm-core
+    PkgConfig::JSON_C
+)
+
+target_compile_options(tinyvm-protocol PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+)
+
 add_executable(tinyvm-session
     src/session.c
 )
 
-target_link_libraries(tinyvm-session PRIVATE
-    tinyvm-core
-    PkgConfig::JSON_C
-)
+target_link_libraries(tinyvm-session PRIVATE tinyvm-protocol)
 
 target_compile_options(tinyvm-session PRIVATE
     -Wall
