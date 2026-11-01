@@ -1,5 +1,6 @@
 # Build artifacts
-build/
+build*/
+__pycache__/
 dist/
 *.o
 *.obj
