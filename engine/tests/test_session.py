@@ -5,11 +5,14 @@ import sys
 import time
 
 
-def start_session(path, timeout_ms=None):
+def start_session(path, timeout_ms=None, extra_environment=None):
     environment = os.environ.copy()
 
     if timeout_ms is not None:
         environment["TINYVM_IDLE_TIMEOUT_MS"] = str(timeout_ms)
+
+    if extra_environment:
+        environment.update(extra_environment)
 
     return subprocess.Popen(
         [path],
@@ -624,6 +627,113 @@ def test_slow_request_timeout(session_path):
         stop_session(process)
 
 
+def read_proc_limit(pid, name):
+    with open(f"/proc/{pid}/limits") as file:
+        for line in file:
+            if line.startswith(name):
+                fields = line[len(name):].split()
+                return fields[0], fields[1]
+
+    raise AssertionError(f"limit not found: {name}")
+
+
+def read_no_new_privs(pid):
+    with open(f"/proc/{pid}/status") as file:
+        for line in file:
+            if line.startswith("NoNewPrivs:"):
+                return line.split()[1]
+
+    return None
+
+
+def test_process_restrictions(session_path):
+    if not os.path.exists("/proc/self/limits"):
+        print("[SKIP] Process restrictions (no /proc)")
+        return
+
+    process = start_session(session_path)
+
+    try:
+        # A response proves that startup (and the restrictions) completed.
+        expect_success(send(process, {"command": "state"}))
+
+        pid = process.pid
+
+        assert read_proc_limit(pid, "Max cpu time") == ("120", "120")
+        assert read_proc_limit(pid, "Max core file size") == ("0", "0")
+        assert read_proc_limit(pid, "Max open files") == ("64", "64")
+        assert read_proc_limit(pid, "Max address space")[0] == "unlimited"
+        assert read_no_new_privs(pid) in ("1", None)
+
+        close_session(process)
+
+    finally:
+        stop_session(process)
+
+    process = start_session(
+        session_path,
+        extra_environment={"TINYVM_CPU_LIMIT_S": "30"},
+    )
+
+    try:
+        expect_success(send(process, {"command": "state"}))
+        assert read_proc_limit(process.pid, "Max cpu time") == ("30", "30")
+        close_session(process)
+
+    finally:
+        stop_session(process)
+
+    if os.environ.get("TINYVM_SKIP_MEMORY_LIMIT_TEST") != "1":
+        process = start_session(
+            session_path,
+            extra_environment={"TINYVM_MEMORY_LIMIT_MB": "8192"},
+        )
+
+        try:
+            expect_success(send(process, {"command": "state"}))
+
+            expected = str(8192 * 1024 * 1024)
+
+            assert read_proc_limit(process.pid, "Max address space") == (
+                expected,
+                expected,
+            )
+
+            # The VM must still work under the address-space limit.
+            expect_success(send(process, {"command": "load", "code": "90"}))
+
+            response = send(process, {"command": "run"})
+            expect_success(response)
+            assert response["status"] == "finished", response
+
+            close_session(process)
+
+        finally:
+            stop_session(process)
+
+    for name, value in (
+        ("TINYVM_CPU_LIMIT_S", "abc"),
+        ("TINYVM_CPU_LIMIT_S", "0"),
+        ("TINYVM_MEMORY_LIMIT_MB", "1"),
+    ):
+        process = start_session(
+            session_path,
+            extra_environment={name: value},
+        )
+
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+
+            assert process.returncode == 1, (name, value, stderr)
+            assert stdout == "", (name, value, stdout)
+            assert name in stderr, (name, value, stderr)
+
+        finally:
+            stop_session(process)
+
+    print("[PASS] Process restrictions")
+
+
 def test_final_step(session_path):
     process = start_session(session_path)
 
@@ -698,6 +808,7 @@ def main():
 
     test_array_session(session_path, code)
     test_final_step(session_path)
+    test_process_restrictions(session_path)
     test_strict_numbers(session_path)
     test_nul_byte(session_path)
     test_program_not_loaded(session_path)

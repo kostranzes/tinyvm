@@ -2,6 +2,7 @@
 
 #include "disasm.h"
 #include "protocol_json.h"
+#include "sandbox.h"
 #include "vm.h"
 
 #include <errno.h>
@@ -471,6 +472,11 @@ static LineResult read_request_line(
 int main(void)
 {
     TinyVM vm = {0};
+
+    /* Restrict the process before it touches any untrusted input. */
+    if (sandbox_apply() != 0) {
+        return 1;
+    }
 
     if (vm_create(&vm) != 0) {
         return 1;

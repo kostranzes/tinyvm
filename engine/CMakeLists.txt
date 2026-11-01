@@ -7,6 +7,13 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+option(TINYVM_SANITIZE "Build with AddressSanitizer and UBSan" OFF)
+
+if(TINYVM_SANITIZE)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(UNICORN REQUIRED IMPORTED_TARGET unicorn)
@@ -44,6 +51,7 @@ target_link_libraries(tinyvm-engine PRIVATE tinyvm-protocol)
 
 add_executable(tinyvm-session
     src/session.c
+    src/sandbox.c
 )
 
 target_link_libraries(tinyvm-session PRIVATE tinyvm-protocol)
@@ -117,4 +125,12 @@ if(BUILD_TESTING)
             $<TARGET_FILE:tinyvm-session>
             ${ARRAY_SUM_BINARY}
     )
+
+    if(TINYVM_SANITIZE)
+        # AddressSanitizer reserves huge virtual ranges, which is
+        # incompatible with an RLIMIT_AS cap.
+        set_tests_properties(session-tests PROPERTIES
+            ENVIRONMENT "TINYVM_SKIP_MEMORY_LIMIT_TEST=1"
+        )
+    endif()
 endif()
