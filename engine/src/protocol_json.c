@@ -1,10 +1,26 @@
 #include "protocol_json.h"
 
-#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static int hex_digit(char character)
+{
+    if (character >= '0' && character <= '9') {
+        return character - '0';
+    }
+
+    if (character >= 'a' && character <= 'f') {
+        return character - 'a' + 10;
+    }
+
+    if (character >= 'A' && character <= 'F') {
+        return character - 'A' + 10;
+    }
+
+    return -1;
+}
 
 /* ------------------------------------------------------------------ */
 /* Request parsing                                                     */
@@ -74,22 +90,38 @@ int protocol_get_string(
 
 int protocol_parse_u64(const char *text, uint64_t *value)
 {
-    if (text == NULL || *text == '\0' ||
-        *text == '-' || *text == '+' ||
-        *text == ' ' || *text == '\t') {
+    unsigned int base = 10;
+
+    if (text == NULL) {
         return 1;
     }
 
-    errno = 0;
+    if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+        base = 16;
+        text += 2;
+    }
 
-    char *end = NULL;
-    unsigned long long parsed = strtoull(text, &end, 0);
-
-    if (errno != 0 || end == text || *end != '\0') {
+    if (*text == '\0') {
         return 1;
     }
 
-    *value = (uint64_t)parsed;
+    uint64_t result = 0;
+
+    for (; *text != '\0'; text++) {
+        int digit = hex_digit(*text);
+
+        if (digit < 0 || (unsigned int)digit >= base) {
+            return 1;
+        }
+
+        if (result > (UINT64_MAX - (uint64_t)digit) / base) {
+            return 1;
+        }
+
+        result = result * base + (uint64_t)digit;
+    }
+
+    *value = result;
 
     return 0;
 }
@@ -137,23 +169,6 @@ int protocol_get_disassembly_limit(json_object *request, size_t *maximum)
 /* ------------------------------------------------------------------ */
 /* Hexadecimal conversion                                              */
 /* ------------------------------------------------------------------ */
-
-static int hex_digit(char character)
-{
-    if (character >= '0' && character <= '9') {
-        return character - '0';
-    }
-
-    if (character >= 'a' && character <= 'f') {
-        return character - 'a' + 10;
-    }
-
-    if (character >= 'A' && character <= 'F') {
-        return character - 'A' + 10;
-    }
-
-    return -1;
-}
 
 int protocol_decode_hex(
     const char *text,

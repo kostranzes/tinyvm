@@ -5,16 +5,24 @@
 #include "vm.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #define DEFAULT_IDLE_TIMEOUT_MS 60000
 #define MIN_IDLE_TIMEOUT_MS 1000
 #define MAX_IDLE_TIMEOUT_MS 300000
+
+#define INPUT_BUFFER_SIZE 65536
+
+/* ------------------------------------------------------------------ */
+/* Command execution                                                   */
+/* ------------------------------------------------------------------ */
 
 static json_object *process_disassemble(
     TinyVM *vm,
@@ -52,6 +60,38 @@ static json_object *process_disassemble(
     return response;
 }
 
+static json_object *process_set_instruction_limit(
+    TinyVM *vm,
+    json_object *request
+)
+{
+    uint64_t limit = 0;
+
+    if (protocol_get_u64(request, "limit", &limit) != 0 ||
+        limit == 0 ||
+        limit > VM_MAX_INSTRUCTION_LIMIT) {
+        return protocol_make_response(vm, "invalid_limit_arguments");
+    }
+
+    if (vm_set_instruction_limit(vm, (size_t)limit) != 0) {
+        return protocol_make_response(vm, "limit_change_failed");
+    }
+
+    json_object *response = protocol_make_response(vm, NULL);
+
+    if (response == NULL) {
+        return NULL;
+    }
+
+    json_object_object_add(
+        response,
+        "instruction_limit",
+        json_object_new_int64((int64_t)vm->instruction_limit)
+    );
+
+    return response;
+}
+
 static json_object *process_command(
     TinyVM *vm,
     json_object *request,
@@ -74,6 +114,10 @@ static json_object *process_command(
     }
 
     if (strcmp(command, "disassemble") == 0) {
+        if (!vm_has_loaded_code(vm)) {
+            return protocol_make_response(vm, "program_not_loaded");
+        }
+
         return process_disassemble(vm, request);
     }
 
@@ -96,6 +140,10 @@ static json_object *process_command(
             vm,
             result == 0 ? NULL : "load_failed"
         );
+    }
+
+    if (strcmp(command, "set_instruction_limit") == 0) {
+        return process_set_instruction_limit(vm, request);
     }
 
     if (strcmp(command, "set_register") == 0) {
@@ -143,6 +191,10 @@ static json_object *process_command(
     }
 
     if (strcmp(command, "step") == 0) {
+        if (!vm_has_loaded_code(vm)) {
+            return protocol_make_response(vm, "program_not_loaded");
+        }
+
         if (vm->status == VM_STATUS_FINISHED) {
             return protocol_make_response(vm, "session_finished");
         }
@@ -168,6 +220,10 @@ static json_object *process_command(
     }
 
     if (strcmp(command, "run") == 0) {
+        if (!vm_has_loaded_code(vm)) {
+            return protocol_make_response(vm, "program_not_loaded");
+        }
+
         if (vm->status == VM_STATUS_FINISHED) {
             return protocol_make_response(vm, NULL);
         }
@@ -236,6 +292,28 @@ static json_object *process_command(
     return protocol_make_response(vm, "unknown_command");
 }
 
+/* ------------------------------------------------------------------ */
+/* Input                                                               */
+/* ------------------------------------------------------------------ */
+
+typedef enum {
+    LINE_EOF = 0,
+    LINE_OK = 1,
+    LINE_ERROR = -1,
+    LINE_TIMEOUT = -2,
+    LINE_INCOMPLETE = -3,
+    LINE_TOO_LARGE = -4,
+    LINE_INVALID = -5
+} LineResult;
+
+typedef struct {
+    char data[INPUT_BUFFER_SIZE];
+    size_t position;
+    size_t length;
+} InputBuffer;
+
+static InputBuffer input_buffer;
+
 static int get_idle_timeout(void)
 {
     const char *text = getenv("TINYVM_IDLE_TIMEOUT_MS");
@@ -250,40 +328,60 @@ static int get_idle_timeout(void)
     return (int)value;
 }
 
-static int read_request_line(
-    char *line,
-    size_t capacity,
-    int timeout_ms
-)
+static int64_t now_ms(void)
 {
-    size_t length = 0;
-    int oversized = 0;
+    struct timespec now;
 
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+/*
+ * Refills the input buffer. Returns LINE_OK when data is available,
+ * LINE_EOF at end of input, LINE_TIMEOUT when the deadline passed and
+ * LINE_ERROR on I/O failure.
+ */
+static LineResult fill_input_buffer(InputBuffer *input, int64_t deadline)
+{
     while (1) {
-        struct pollfd input = {
+        int64_t remaining = deadline - now_ms();
+
+        if (remaining <= 0) {
+            return LINE_TIMEOUT;
+        }
+
+        struct pollfd descriptor = {
             .fd = STDIN_FILENO,
             .events = POLLIN
         };
 
-        int ready = poll(&input, 1, timeout_ms);
+        int ready = poll(
+            &descriptor,
+            1,
+            remaining > INT_MAX ? INT_MAX : (int)remaining
+        );
 
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;
             }
 
-            return -1;
+            return LINE_ERROR;
         }
 
         if (ready == 0) {
-            return -2;
+            return LINE_TIMEOUT;
         }
 
-        char character;
-        ssize_t count = read(STDIN_FILENO, &character, 1);
+        ssize_t count = read(
+            STDIN_FILENO,
+            input->data,
+            sizeof(input->data)
+        );
 
         if (count == 0) {
-            return length == 0 ? 0 : -3;
+            return LINE_EOF;
         }
 
         if (count < 0) {
@@ -291,16 +389,68 @@ static int read_request_line(
                 continue;
             }
 
-            return -1;
+            return LINE_ERROR;
         }
+
+        input->position = 0;
+        input->length = (size_t)count;
+
+        return LINE_OK;
+    }
+}
+
+/*
+ * Reads one newline-terminated request into `line` (NUL-terminated).
+ *
+ * The idle timeout is a deadline for the whole line: a client that sends a
+ * request slowly, byte by byte, cannot keep the session alive indefinitely.
+ */
+static LineResult read_request_line(
+    InputBuffer *input,
+    char *line,
+    size_t capacity,
+    int timeout_ms
+)
+{
+    size_t length = 0;
+    size_t consumed = 0;
+    int oversized = 0;
+    int contains_nul = 0;
+    int64_t deadline = now_ms() + timeout_ms;
+
+    while (1) {
+        if (input->position == input->length) {
+            LineResult status = fill_input_buffer(input, deadline);
+
+            if (status == LINE_EOF) {
+                return consumed == 0 ? LINE_EOF : LINE_INCOMPLETE;
+            }
+
+            if (status != LINE_OK) {
+                return status;
+            }
+        }
+
+        char character = input->data[input->position++];
 
         if (character == '\n') {
             if (oversized) {
-                return -4;
+                return LINE_TOO_LARGE;
+            }
+
+            if (contains_nul) {
+                return LINE_INVALID;
             }
 
             line[length] = '\0';
-            return 1;
+            return LINE_OK;
+        }
+
+        consumed++;
+
+        if (character == '\0') {
+            contains_nul = 1;
+            continue;
         }
 
         if (length + 1 >= capacity) {
@@ -313,6 +463,10 @@ static int read_request_line(
         }
     }
 }
+
+/* ------------------------------------------------------------------ */
+/* Session loop                                                        */
+/* ------------------------------------------------------------------ */
 
 int main(void)
 {
@@ -333,42 +487,43 @@ int main(void)
     int closed = 0;
 
     while (!closed) {
-        int result = read_request_line(
+        LineResult result = read_request_line(
+            &input_buffer,
             line,
             PROTOCOL_MAX_LINE_SIZE + 1,
             timeout_ms
         );
 
-        if (result == 0) {
+        if (result == LINE_EOF || result == LINE_ERROR) {
             break;
         }
 
-        if (result == -2) {
+        if (result == LINE_TIMEOUT) {
             protocol_send_response(
                 protocol_make_response(&vm, "session_timeout")
             );
             break;
         }
 
-        if (result == -4) {
-            protocol_send_response(
-                protocol_make_response(&vm, "request_too_large")
-            );
-            continue;
-        }
-
-        if (result == -3) {
+        if (result == LINE_INCOMPLETE) {
             protocol_send_response(
                 protocol_make_response(&vm, "incomplete_request")
             );
             break;
         }
 
-        if (result < 0) {
-            break;
+        if (result == LINE_TOO_LARGE) {
+            protocol_send_response(
+                protocol_make_response(&vm, "request_too_large")
+            );
+            continue;
         }
 
-        json_object *request = protocol_parse_request(line);
+        json_object *request = NULL;
+
+        if (result == LINE_OK) {
+            request = protocol_parse_request(line);
+        }
 
         if (request == NULL) {
             protocol_send_response(

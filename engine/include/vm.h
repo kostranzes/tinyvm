@@ -13,6 +13,10 @@
 #define VM_STACK_ADDRESS 0x200000
 #define VM_STACK_SIZE    0x10000
 
+/* Execution limits. The limit can be lowered or raised before execution. */
+#define VM_DEFAULT_INSTRUCTION_LIMIT 1000
+#define VM_MAX_INSTRUCTION_LIMIT     1000000
+
 typedef enum {
     VM_STATUS_READY,
     VM_STATUS_RUNNING,
@@ -57,6 +61,8 @@ typedef struct {
 
 int vm_create(TinyVM *vm);
 int vm_load_code(TinyVM *vm, const uint8_t *code, size_t code_size);
+int vm_has_loaded_code(const TinyVM *vm);
+int vm_set_instruction_limit(TinyVM *vm, size_t limit);
 int vm_set_register(TinyVM *vm, int register_id, uint64_t value);
 int vm_initialize_memory(TinyVM *vm, uint64_t address, const void *buffer, size_t size);
 int vm_step(TinyVM *vm);

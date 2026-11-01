@@ -28,6 +28,11 @@ json_object *protocol_parse_request(const char *line);
 int protocol_get_string(json_object *request, const char *key,
                         const char **value);
 int protocol_get_u64(json_object *request, const char *key, uint64_t *value);
+/*
+ * Strict unsigned 64-bit parser: decimal digits, or "0x"/"0X" followed by
+ * hexadecimal digits. No sign, whitespace, octal or trailing characters;
+ * overflow is rejected. Leading zeros in decimal numbers are plain decimal.
+ */
 int protocol_parse_u64(const char *text, uint64_t *value);
 
 /* Optional "max_instructions" argument of the disassemble command. */

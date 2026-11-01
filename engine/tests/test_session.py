@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 
 def start_session(path, timeout_ms=None):
@@ -332,6 +333,297 @@ def test_array_session(session_path, code):
         stop_session(process)
 
 
+def test_strict_numbers(session_path):
+    process = start_session(session_path)
+
+    try:
+        response = send(process, {"command": "load", "code": "90"})
+        expect_success(response)
+
+        valid = {"10": 10, "010": 10, "08": 8, "0x10": 16, "0XfF": 255}
+
+        for text, expected in valid.items():
+            response = send(
+                process,
+                {"command": "set_register", "register": "rax", "value": text},
+            )
+            expect_success(response)
+
+            response = send(process, {"command": "state"})
+            assert int(response["registers"]["rax"], 16) == expected, (
+                text,
+                response,
+            )
+
+        invalid = [
+            "",
+            "0x",
+            "-1",
+            "+1",
+            " 5",
+            "5 ",
+            "\n5",
+            "\r5",
+            "1_0",
+            "0xg",
+            "1e3",
+            "18446744073709551616",
+            "0x10000000000000000",
+        ]
+
+        for text in invalid:
+            response = send(
+                process,
+                {"command": "set_register", "register": "rax", "value": text},
+            )
+            assert response["error"] == "invalid_register_arguments", (
+                text,
+                response,
+            )
+
+        response = send(
+            process,
+            {"command": "set_register", "register": "rax", "value": 5},
+        )
+        assert response["error"] == "invalid_register_arguments", response
+
+        response = send(
+            process,
+            {
+                "command": "set_register",
+                "register": "rax",
+                "value": "18446744073709551615",
+            },
+        )
+        expect_success(response)
+
+        response = send(process, {"command": "state"})
+        assert response["registers"]["rax"] == "0xffffffffffffffff", response
+
+        close_session(process)
+
+        print("[PASS] Strict numeric parsing")
+
+    finally:
+        stop_session(process)
+
+
+def test_nul_byte(session_path):
+    process = start_session(session_path)
+
+    try:
+        response = send_raw(process, '{"command":"state"}\x00garbage')
+        assert response["error"] == "invalid_json", response
+
+        response = send_raw(process, '\x00{"command":"state"}')
+        assert response["error"] == "invalid_json", response
+
+        response = send(process, {"command": "state"})
+        expect_success(response)
+        assert response["status"] == "ready", response
+
+        close_session(process)
+
+        print("[PASS] NUL byte rejection")
+
+    finally:
+        stop_session(process)
+
+
+def test_program_not_loaded(session_path):
+    process = start_session(session_path)
+
+    try:
+        for command in ("step", "run", "disassemble"):
+            response = send(process, {"command": command})
+            assert response["error"] == "program_not_loaded", response
+            assert response["status"] == "ready", response
+            assert response["instruction_count"] == 0, response
+
+        response = send(process, {"command": "load", "code": "90"})
+        expect_success(response)
+
+        response = send(process, {"command": "step"})
+        expect_success(response)
+        assert response["status"] == "finished", response
+
+        close_session(process)
+
+        print("[PASS] Commands before load do not break the session")
+
+    finally:
+        stop_session(process)
+
+
+def test_instruction_limit(session_path):
+    process = start_session(session_path)
+
+    try:
+        response = send(process, {"command": "load", "code": "ebfe"})
+        expect_success(response)
+
+        invalid = ["0", "1000001", "abc", "", "-5", 10, None]
+
+        for value in invalid:
+            response = send(
+                process,
+                {"command": "set_instruction_limit", "limit": value},
+            )
+            assert response["error"] == "invalid_limit_arguments", (
+                value,
+                response,
+            )
+
+        response = send(process, {"command": "set_instruction_limit"})
+        assert response["error"] == "invalid_limit_arguments", response
+
+        response = send(
+            process,
+            {"command": "set_instruction_limit", "limit": "10"},
+        )
+        expect_success(response)
+        assert response["instruction_limit"] == 10, response
+
+        response = send(process, {"command": "run"})
+        assert response["error"] == "instruction_limit_exceeded", response
+        assert response["status"] == "limit_exceeded", response
+        assert response["instruction_count"] == 10, response
+
+        response = send(
+            process,
+            {"command": "set_instruction_limit", "limit": "20"},
+        )
+        assert response["error"] == "limit_change_failed", response
+
+        close_session(process)
+
+    finally:
+        stop_session(process)
+
+    process = start_session(session_path)
+
+    try:
+        response = send(process, {"command": "load", "code": "ebfe"})
+        expect_success(response)
+
+        response = send(process, {"command": "run"})
+        assert response["error"] == "instruction_limit_exceeded", response
+        assert response["instruction_count"] == 1000, response
+
+        close_session(process)
+
+    finally:
+        stop_session(process)
+
+    process = start_session(session_path)
+
+    try:
+        response = send(process, {"command": "load", "code": "9090"})
+        expect_success(response)
+
+        response = send(
+            process,
+            {"command": "set_instruction_limit", "limit": "1000000"},
+        )
+        expect_success(response)
+        assert response["instruction_limit"] == 1000000, response
+
+        response = send(process, {"command": "step"})
+        expect_success(response)
+
+        response = send(
+            process,
+            {"command": "set_instruction_limit", "limit": "5"},
+        )
+        assert response["error"] == "limit_change_failed", response
+
+        close_session(process)
+
+        print("[PASS] Instruction limit command")
+
+    finally:
+        stop_session(process)
+
+
+def test_large_memory_initialization(session_path):
+    process = start_session(session_path)
+
+    try:
+        data = bytes(index % 251 for index in range(65536))
+
+        response = send(process, {"command": "load", "code": "90"})
+        expect_success(response)
+
+        response = send(
+            process,
+            {
+                "command": "initialize_memory",
+                "address": "0x110000",
+                "data": data.hex(),
+            },
+        )
+        expect_success(response)
+
+        response = send(
+            process,
+            {
+                "command": "read_memory",
+                "address": "0x110000",
+                "size": "4096",
+            },
+        )
+        expect_success(response)
+        assert response["data"] == data[:4096].hex(), response
+
+        response = send(
+            process,
+            {
+                "command": "read_memory",
+                "address": hex(0x110000 + 65536 - 16),
+                "size": "16",
+            },
+        )
+        expect_success(response)
+        assert response["data"] == data[-16:].hex(), response
+
+        close_session(process)
+
+        print("[PASS] Maximum memory initialization request")
+
+    finally:
+        stop_session(process)
+
+
+def test_slow_request_timeout(session_path):
+    process = start_session(session_path, timeout_ms=1000)
+
+    try:
+        started = time.monotonic()
+
+        try:
+            process.stdin.write('{"command":')
+            process.stdin.flush()
+
+            for _ in range(10):
+                time.sleep(0.3)
+                process.stdin.write(" ")
+                process.stdin.flush()
+        except BrokenPipeError:
+            pass
+
+        response = read_response(process)
+        elapsed = time.monotonic() - started
+
+        assert response["error"] == "session_timeout", response
+        assert elapsed < 2.5, elapsed
+        assert process.wait(timeout=5) == 0
+
+        print("[PASS] Slow request cannot extend the idle timeout")
+
+    finally:
+        stop_session(process)
+
+
 def test_final_step(session_path):
     process = start_session(session_path)
 
@@ -406,8 +698,14 @@ def main():
 
     test_array_session(session_path, code)
     test_final_step(session_path)
+    test_strict_numbers(session_path)
+    test_nul_byte(session_path)
+    test_program_not_loaded(session_path)
+    test_instruction_limit(session_path)
+    test_large_memory_initialization(session_path)
     test_oversized_request(session_path)
     test_idle_timeout(session_path)
+    test_slow_request_timeout(session_path)
 
     print("\nAll session integration tests passed")
     return 0

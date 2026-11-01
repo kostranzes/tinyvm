@@ -1,6 +1,6 @@
 # TinyVM Session Protocol
 
-Version: 1.1
+Version: 1.2
 
 ## 1. Overview
 
@@ -11,7 +11,7 @@ Communication uses newline-delimited JSON:
 - **stdin** — one JSON request per line.
 - **stdout** — one JSON response per request.
 - **stderr** — diagnostic messages only.
-- **Encoding** — UTF-8.
+- **Encoding** — UTF-8. A request must not contain NUL bytes; such a line is rejected with `invalid_json`.
 - **Session model** — one process loads at most one program.
 
 The backend must not expose this process directly to untrusted clients. It is responsible for authentication, authorization, request validation, process isolation, and resource limits.
@@ -81,7 +81,14 @@ Fields:
 - `register` — register name.
 - `value` — unsigned 64-bit integer represented as a string.
 
-Values may use decimal notation or a `0x` prefix for hexadecimal notation.
+Numeric string values are parsed strictly:
+
+- Decimal notation uses digits only. Leading zeros do not select octal: `"010"` is ten.
+- Hexadecimal notation requires a `0x` or `0X` prefix followed by at least one hexadecimal digit.
+- Signs, whitespace, separators, exponent notation and trailing characters are rejected.
+- Values that do not fit in an unsigned 64-bit integer are rejected.
+
+This rule applies to every numeric string argument (`value`, `address`, `size`, `limit`).
 
 The command is intended for setting up input state before execution. `RIP`, `RSP`, and `RFLAGS` are not accepted by the session register-write command.
 
@@ -122,6 +129,8 @@ If the instruction reaches the end of the loaded program, the response reports `
 
 A subsequent step after successful completion returns `session_finished`.
 
+If no program has been loaded, the command returns `program_not_loaded` and the session remains usable.
+
 If an execution limit or VM error is reached, the response contains the corresponding error.
 
 ### 3.5. `run`
@@ -137,6 +146,8 @@ Request:
 Execution is subject to the VM's configured instruction limit and other safeguards.
 
 Calling `run` on an already finished VM returns its finished state without restarting the program.
+
+If no program has been loaded, the command returns `program_not_loaded` and the session remains usable.
 
 ### 3.6. `state`
 
@@ -205,7 +216,7 @@ The frontend can use `is_current` to highlight the instruction corresponding to 
 
 If `max_instructions` truncates the decoded output, `complete` may be false. If RIP does not match any decoded instruction, `current_found` is false.
 
-If decoding fails, the command returns `disassembly_failed`.
+If decoding fails, the command returns `disassembly_failed`. If no program has been loaded, the command returns `program_not_loaded`.
 
 ### 3.8. `read_memory`
 
@@ -240,6 +251,31 @@ Request:
 
 After receiving the response, the caller should close stdin and wait for the process to exit.
 
+### 3.10. `set_instruction_limit`
+
+Sets the maximum number of instructions the program may execute.
+
+Request:
+
+```json
+{"command":"set_instruction_limit","limit":"50000"}
+```
+
+Fields:
+
+- `limit` — instruction limit represented as a string.
+
+Rules:
+
+- The limit must be an integer from 1 through 1000000.
+- The default limit is 1000 instructions.
+- The limit can be changed only before execution begins. A change after the first `step` or `run` returns `limit_change_failed`.
+- A missing, malformed or out-of-range value returns `invalid_limit_arguments`.
+
+A successful response contains the standard fields and an additional `instruction_limit` integer with the limit now in effect.
+
+When the limit is reached, execution stops with `instruction_limit_exceeded` and the status `limit_exceeded`. Exactly `limit` instructions have been executed at that point.
+
 ## 4. VM statuses
 
 The VM status is returned in the `status` field.
@@ -273,6 +309,9 @@ The exact terminal status depends on the execution outcome and VM implementation
 | `execution_failed` | Continued execution failed |
 | `instruction_limit_exceeded` | Instruction limit prevented further execution |
 | `session_finished` | A step was requested after the program finished |
+| `program_not_loaded` | `step`, `run` or `disassemble` was requested before `load` |
+| `invalid_limit_arguments` | Instruction limit is missing, malformed or out of range |
+| `limit_change_failed` | Instruction limit cannot be changed in the current VM state |
 | `invalid_disassembly_arguments` | Disassembly limit is invalid |
 | `disassembly_failed` | Machine code could not be disassembled |
 | `request_too_large` | Request exceeds the permitted size |
@@ -292,11 +331,15 @@ A VM execution error may leave the loaded program in a terminal state. Create a 
 | Maximum memory read | 4096 bytes |
 | Maximum memory initialization request | 65536 bytes |
 | Maximum disassembly instructions | 4096 |
+| Default instruction limit | 1000 |
+| Maximum instruction limit | 1000000 |
 | Default idle timeout | 60000 ms |
 
-The idle timeout can be configured using the `TINYVM_IDLE_TIMEOUT_MS` environment variable.
+The idle timeout can be configured using the `TINYVM_IDLE_TIMEOUT_MS` environment variable. Valid values are 1000 through 300000 milliseconds; anything else selects the default.
 
-The session process also enforces the VM's configured instruction limit. The backend should additionally apply wall-clock, concurrency, and operating-system resource limits.
+The timeout is a deadline for receiving each complete request line. It starts when the session begins waiting for a request, and a client cannot extend it by sending a request slowly. When it expires, the session returns `session_timeout` and exits.
+
+The session process also enforces the VM's instruction limit (see `set_instruction_limit`). The backend should additionally apply wall-clock, concurrency, and operating-system resource limits.
 
 ## 7. Virtual-memory layout
 

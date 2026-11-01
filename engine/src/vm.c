@@ -69,7 +69,7 @@ static int is_initial_register_allowed(int register_id)
     return 0;
 }
 
-static int vm_has_loaded_code(const TinyVM *vm)
+int vm_has_loaded_code(const TinyVM *vm)
 {
     return vm != NULL &&
            vm->uc != NULL &&
@@ -98,7 +98,7 @@ int vm_create(TinyVM *vm)
 
     memset(vm, 0, sizeof(*vm));
 
-    vm->instruction_limit = 1000;
+    vm->instruction_limit = VM_DEFAULT_INSTRUCTION_LIMIT;
     vm->status = VM_STATUS_READY;
 
     uc_err err = uc_open(UC_ARCH_X86, UC_MODE_64, &vm->uc);
@@ -209,6 +209,26 @@ error:
     vm->status = VM_STATUS_ERROR;
 
     return 1;
+}
+
+int vm_set_instruction_limit(TinyVM *vm, size_t limit)
+{
+    if (vm == NULL ||
+        vm->uc == NULL ||
+        vm->status != VM_STATUS_READY ||
+        vm->instruction_count != 0) {
+        fprintf(stderr, "Cannot change the instruction limit in current VM state\n");
+        return 1;
+    }
+
+    if (limit == 0 || limit > VM_MAX_INSTRUCTION_LIMIT) {
+        fprintf(stderr, "Instruction limit is outside the permitted range\n");
+        return 1;
+    }
+
+    vm->instruction_limit = limit;
+
+    return 0;
 }
 
 int vm_set_register(TinyVM *vm, int register_id, uint64_t value)

@@ -480,6 +480,119 @@ cleanup:
     return result;
 }
 
+static int test_set_instruction_limit(void)
+{
+    const uint8_t code[] = { 0xEB, 0xFE };
+
+    TinyVM vm = {0};
+    int result = 1;
+
+    if (vm_create(&vm) != 0) goto cleanup;
+
+    if (vm.instruction_limit != VM_DEFAULT_INSTRUCTION_LIMIT) {
+        fprintf(stderr, "Unexpected default instruction limit\n");
+        goto cleanup;
+    }
+
+    if (vm_load_code(&vm, code, sizeof(code)) != 0) goto cleanup;
+
+    if (vm_set_instruction_limit(&vm, 0) == 0 ||
+        vm_set_instruction_limit(&vm, VM_MAX_INSTRUCTION_LIMIT + 1) == 0) {
+        fprintf(stderr, "Invalid instruction limit was accepted\n");
+        goto cleanup;
+    }
+
+    if (vm.instruction_limit != VM_DEFAULT_INSTRUCTION_LIMIT) {
+        fprintf(stderr, "Rejected limit changed the VM\n");
+        goto cleanup;
+    }
+
+    if (vm_set_instruction_limit(&vm, 7) != 0) goto cleanup;
+
+    if (vm_run(&vm) == 0 ||
+        vm.status != VM_STATUS_LIMIT_EXCEEDED ||
+        vm.instruction_count != 7) {
+        fprintf(stderr, "Custom instruction limit was not enforced\n");
+        goto cleanup;
+    }
+
+    if (vm_set_instruction_limit(&vm, 100) == 0) {
+        fprintf(stderr, "Limit change after execution was allowed\n");
+        goto cleanup;
+    }
+
+    result = 0;
+
+cleanup:
+    vm_destroy(&vm);
+    return result;
+}
+
+static int test_limit_change_after_step(void)
+{
+    const uint8_t code[] = { 0x90, 0x90 };
+
+    TinyVM vm = {0};
+    int result = 1;
+
+    if (vm_create(&vm) != 0) goto cleanup;
+    if (vm_load_code(&vm, code, sizeof(code)) != 0) goto cleanup;
+    if (vm_step(&vm) != 0) goto cleanup;
+
+    if (vm_set_instruction_limit(&vm, 100) == 0) {
+        fprintf(stderr, "Limit change while running was allowed\n");
+        goto cleanup;
+    }
+
+    result = 0;
+
+cleanup:
+    vm_destroy(&vm);
+    return result;
+}
+
+static int test_register_names(void)
+{
+    if (vm_register_from_name("rax") != UC_X86_REG_RAX ||
+        vm_register_from_name("rdi") != UC_X86_REG_RDI ||
+        vm_register_from_name("r15") != UC_X86_REG_R15) {
+        fprintf(stderr, "Valid register name was not recognized\n");
+        return 1;
+    }
+
+    if (vm_register_from_name("rip") != UC_X86_REG_INVALID ||
+        vm_register_from_name("rsp") != UC_X86_REG_INVALID ||
+        vm_register_from_name("rflags") != UC_X86_REG_INVALID ||
+        vm_register_from_name("RAX") != UC_X86_REG_INVALID ||
+        vm_register_from_name("") != UC_X86_REG_INVALID ||
+        vm_register_from_name(NULL) != UC_X86_REG_INVALID) {
+        fprintf(stderr, "Invalid register name was accepted\n");
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_has_loaded_code(void)
+{
+    const uint8_t code[] = { 0x90 };
+
+    TinyVM vm = {0};
+    int result = 1;
+
+    if (vm_has_loaded_code(NULL) != 0) goto cleanup;
+    if (vm_create(&vm) != 0) goto cleanup;
+    if (vm_has_loaded_code(&vm) != 0) goto cleanup;
+    if (vm_load_code(&vm, code, sizeof(code)) != 0) goto cleanup;
+    if (vm_has_loaded_code(&vm) == 0) goto cleanup;
+
+    result = 0;
+
+cleanup:
+    vm_destroy(&vm);
+    return result;
+}
+
 static int run_test(const char *name, int (*test)(void))
 {
     int failed = test();
@@ -507,6 +620,10 @@ int main(void)
     failed += run_test("Step after finish", test_step_after_finish);
     failed += run_test("Initial registers", test_initial_registers);
     failed += run_test("Register write restrictions", test_register_write_restrictions);
+    failed += run_test("Instruction limit setter", test_set_instruction_limit);
+    failed += run_test("Limit change after step", test_limit_change_after_step);
+    failed += run_test("Register names", test_register_names);
+    failed += run_test("Loaded code detection", test_has_loaded_code);
 
     printf("\nTests failed: %d\n", failed);
 
