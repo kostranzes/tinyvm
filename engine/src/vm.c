@@ -3,13 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define CODE_ADDRESS 0x100000
-#define CODE_SIZE 0x1000
-#define DATA_ADDRESS 0x110000
-#define DATA_SIZE 0x10000
-#define STACK_ADDRESS 0x200000
-#define STACK_SIZE 0x10000
-
 static int address_in_region(
     uint64_t address,
     size_t size,
@@ -26,29 +19,54 @@ static int address_in_region(
     return offset < region_size && size <= region_size - offset;
 }
 
+static const struct {
+    const char *name;
+    int id;
+} initial_registers[] = {
+    {"rax", UC_X86_REG_RAX},
+    {"rbx", UC_X86_REG_RBX},
+    {"rcx", UC_X86_REG_RCX},
+    {"rdx", UC_X86_REG_RDX},
+    {"rsi", UC_X86_REG_RSI},
+    {"rdi", UC_X86_REG_RDI},
+    {"rbp", UC_X86_REG_RBP},
+    {"r8", UC_X86_REG_R8},
+    {"r9", UC_X86_REG_R9},
+    {"r10", UC_X86_REG_R10},
+    {"r11", UC_X86_REG_R11},
+    {"r12", UC_X86_REG_R12},
+    {"r13", UC_X86_REG_R13},
+    {"r14", UC_X86_REG_R14},
+    {"r15", UC_X86_REG_R15}
+};
+
+#define INITIAL_REGISTER_COUNT \
+    (sizeof(initial_registers) / sizeof(initial_registers[0]))
+
+int vm_register_from_name(const char *name)
+{
+    if (name == NULL) {
+        return UC_X86_REG_INVALID;
+    }
+
+    for (size_t i = 0; i < INITIAL_REGISTER_COUNT; i++) {
+        if (strcmp(name, initial_registers[i].name) == 0) {
+            return initial_registers[i].id;
+        }
+    }
+
+    return UC_X86_REG_INVALID;
+}
+
 static int is_initial_register_allowed(int register_id)
 {
-    switch (register_id) {
-        case UC_X86_REG_RAX:
-        case UC_X86_REG_RBX:
-        case UC_X86_REG_RCX:
-        case UC_X86_REG_RDX:
-        case UC_X86_REG_RSI:
-        case UC_X86_REG_RDI:
-        case UC_X86_REG_RBP:
-        case UC_X86_REG_R8:
-        case UC_X86_REG_R9:
-        case UC_X86_REG_R10:
-        case UC_X86_REG_R11:
-        case UC_X86_REG_R12:
-        case UC_X86_REG_R13:
-        case UC_X86_REG_R14:
-        case UC_X86_REG_R15:
+    for (size_t i = 0; i < INITIAL_REGISTER_COUNT; i++) {
+        if (initial_registers[i].id == register_id) {
             return 1;
-
-        default:
-            return 0;
+        }
     }
+
+    return 0;
 }
 
 static int vm_has_loaded_code(const TinyVM *vm)
@@ -94,82 +112,86 @@ int vm_create(TinyVM *vm)
     return 0;
 }
 
+static int map_region(
+    uc_engine *uc,
+    uint64_t address,
+    size_t size,
+    uint32_t permissions,
+    const char *name
+)
+{
+    uc_err err = uc_mem_map(uc, address, size, permissions);
+
+    if (err != UC_ERR_OK) {
+        fprintf(stderr, "Failed to map %s: %s\n", name, uc_strerror(err));
+        return 1;
+    }
+
+    return 0;
+}
+
+static int initialize_register(
+    uc_engine *uc,
+    int register_id,
+    uint64_t value,
+    const char *name
+)
+{
+    uc_err err = uc_reg_write(uc, register_id, &value);
+
+    if (err != UC_ERR_OK) {
+        fprintf(stderr, "Failed to initialize %s: %s\n",
+                name, uc_strerror(err));
+        return 1;
+    }
+
+    return 0;
+}
+
 int vm_load_code(TinyVM *vm, const uint8_t *code, size_t code_size)
 {
+    uc_err err;
+
     if (vm == NULL || vm->uc == NULL || code == NULL ||
-        code_size == 0 || code_size > CODE_SIZE || vm->code_address != 0 ||
+        code_size == 0 || code_size > VM_CODE_SIZE ||
+        vm->code_address != 0 ||
         vm->status != VM_STATUS_READY) {
         fprintf(stderr, "Invalid VM state or code size\n");
         return 1;
     }
 
-    uc_err err = uc_mem_map(
-        vm->uc,
-        CODE_ADDRESS,
-        CODE_SIZE,
-        UC_PROT_READ | UC_PROT_EXEC
-    );
-
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "Failed to map code: %s\n", uc_strerror(err));
+    if (map_region(vm->uc, VM_CODE_ADDRESS, VM_CODE_SIZE,
+                   UC_PROT_READ | UC_PROT_EXEC, "code") != 0) {
         goto error;
     }
 
-    err = uc_mem_write(vm->uc, CODE_ADDRESS, code, code_size);
+    err = uc_mem_write(vm->uc, VM_CODE_ADDRESS, code, code_size);
 
     if (err != UC_ERR_OK) {
         fprintf(stderr, "Failed to load code: %s\n", uc_strerror(err));
         goto error;
     }
 
-    err = uc_mem_map(
-        vm->uc,
-        DATA_ADDRESS,
-        DATA_SIZE,
-        UC_PROT_READ | UC_PROT_WRITE
-    );
-
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "Failed to map data: %s\n", uc_strerror(err));
+    if (map_region(vm->uc, VM_DATA_ADDRESS, VM_DATA_SIZE,
+                   UC_PROT_READ | UC_PROT_WRITE, "data") != 0 ||
+        map_region(vm->uc, VM_STACK_ADDRESS, VM_STACK_SIZE,
+                   UC_PROT_READ | UC_PROT_WRITE, "stack") != 0) {
         goto error;
     }
 
-    err = uc_mem_map(
-        vm->uc,
-        STACK_ADDRESS,
-        STACK_SIZE,
-        UC_PROT_READ | UC_PROT_WRITE
-    );
-
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "Failed to map stack: %s\n", uc_strerror(err));
+    if (initialize_register(vm->uc, UC_X86_REG_RSP,
+                            VM_STACK_ADDRESS + VM_STACK_SIZE, "RSP") != 0 ||
+        initialize_register(vm->uc, UC_X86_REG_RIP,
+                            VM_CODE_ADDRESS, "RIP") != 0) {
         goto error;
     }
 
-    uint64_t rsp = STACK_ADDRESS + STACK_SIZE;
-
-    err = uc_reg_write(vm->uc, UC_X86_REG_RSP, &rsp);
-
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "Failed to initialize RSP: %s\n", uc_strerror(err));
-        goto error;
-    }
-
-    uint64_t rip = CODE_ADDRESS;
-
-    err = uc_reg_write(vm->uc, UC_X86_REG_RIP, &rip);
-
-    if (err != UC_ERR_OK) {
-        fprintf(stderr, "Failed to initialize RIP: %s\n", uc_strerror(err));
-        goto error;
-    }
-
-    vm->code_address = CODE_ADDRESS;
-    vm->code_end = CODE_ADDRESS + code_size;
-    vm->data_address = DATA_ADDRESS;
-    vm->data_size = DATA_SIZE;
-    vm->stack_address = STACK_ADDRESS;
-    vm->stack_size = STACK_SIZE;
+    vm->code_address = VM_CODE_ADDRESS;
+    vm->code_end = VM_CODE_ADDRESS + code_size;
+    vm->data_address = VM_DATA_ADDRESS;
+    vm->data_size = VM_DATA_SIZE;
+    vm->stack_address = VM_STACK_ADDRESS;
+    vm->stack_size = VM_STACK_SIZE;
     vm->instruction_count = 0;
     vm->status = VM_STATUS_READY;
 
@@ -244,6 +266,27 @@ int vm_initialize_memory(
     return 0;
 }
 
+/*
+ * Validates RIP against the loaded code. Reaching code_end marks the program
+ * as finished; any other address outside the code is an error.
+ * Returns 0 if RIP is acceptable and 1 if the VM entered the error state.
+ */
+static int vm_check_rip(TinyVM *vm, uint64_t rip)
+{
+    if (rip == vm->code_end) {
+        vm->status = VM_STATUS_FINISHED;
+        return 0;
+    }
+
+    if (rip < vm->code_address || rip > vm->code_end) {
+        fprintf(stderr, "RIP is outside the loaded code\n");
+        vm->status = VM_STATUS_ERROR;
+        return 1;
+    }
+
+    return 0;
+}
+
 int vm_step(TinyVM *vm)
 {
     if (vm == NULL || vm->uc == NULL) {
@@ -271,14 +314,8 @@ int vm_step(TinyVM *vm)
         return 1;
     }
 
-    if (rip == vm->code_end) {
-        vm->status = VM_STATUS_FINISHED;
-        return 1;
-    }
-
-    if (rip < vm->code_address || rip > vm->code_end) {
-        fprintf(stderr, "RIP is outside the loaded code\n");
-        vm->status = VM_STATUS_ERROR;
+    /* Nothing left to execute, or RIP is invalid. */
+    if (vm_check_rip(vm, rip) != 0 || vm->status == VM_STATUS_FINISHED) {
         return 1;
     }
 
@@ -309,15 +346,7 @@ int vm_step(TinyVM *vm)
         return 1;
     }
 
-    if (rip == vm->code_end) {
-        vm->status = VM_STATUS_FINISHED;
-    } else if (rip < vm->code_address || rip > vm->code_end) {
-        fprintf(stderr, "RIP is outside the loaded code\n");
-        vm->status = VM_STATUS_ERROR;
-        return 1;
-    }
-
-    return 0;
+    return vm_check_rip(vm, rip);
 }
 
 int vm_run(TinyVM *vm)

@@ -16,19 +16,6 @@
 #define MIN_IDLE_TIMEOUT_MS 1000
 #define MAX_IDLE_TIMEOUT_MS 300000
 
-static const char *execution_error(const TinyVM *vm)
-{
-    if (vm->status == VM_STATUS_LIMIT_EXCEEDED) {
-        return "instruction_limit_exceeded";
-    }
-
-    if (vm->status == VM_STATUS_ERROR) {
-        return "execution_failed";
-    }
-
-    return NULL;
-}
-
 static json_object *process_disassemble(
     TinyVM *vm,
     json_object *request
@@ -122,7 +109,7 @@ static json_object *process_command(
             );
         }
 
-        int id = protocol_register_id(name);
+        int id = vm_register_from_name(name);
 
         if (id == UC_X86_REG_INVALID ||
             vm_set_register(vm, id, value) != 0) {
@@ -162,7 +149,7 @@ static json_object *process_command(
 
         if (vm->status == VM_STATUS_LIMIT_EXCEEDED ||
             vm->status == VM_STATUS_ERROR) {
-            return protocol_make_response(vm, execution_error(vm));
+            return protocol_make_response(vm, protocol_execution_error(vm));
         }
 
         int result = vm_step(vm);

@@ -10,7 +10,7 @@
 
 /* Protocol limits (see PROTOCOL.md, section 6). */
 #define PROTOCOL_MAX_LINE_SIZE    262144
-#define PROTOCOL_MAX_CODE_SIZE    4096
+#define PROTOCOL_MAX_CODE_SIZE    VM_CODE_SIZE
 #define PROTOCOL_MAX_MEMORY_READ  4096
 #define PROTOCOL_MAX_MEMORY_INPUT 65536
 
@@ -38,9 +38,6 @@ int protocol_decode_hex(const char *text, uint8_t **buffer, size_t *size,
                         size_t maximum);
 char *protocol_encode_hex(const uint8_t *buffer, size_t size);
 
-/* Maps a register name to a Unicorn register id, or UC_X86_REG_INVALID. */
-int protocol_register_id(const char *name);
-
 /*
  * Response construction.
  *
@@ -48,6 +45,15 @@ int protocol_register_id(const char *name);
  * Functions return a new object (or NULL on allocation failure).
  */
 json_object *protocol_make_response(TinyVM *vm, const char *error);
+
+/* Response for failures that happen before a VM exists (status "error"). */
+json_object *protocol_make_error(const char *error);
+
+/*
+ * Error code describing the terminal VM state: "instruction_limit_exceeded"
+ * or "execution_failed". Returns NULL for every other status.
+ */
+const char *protocol_execution_error(const TinyVM *vm);
 json_object *protocol_disassembly_to_json(const DisasmResult *result);
 
 /* Writes one response line to stdout and releases the object. */

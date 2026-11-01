@@ -5,6 +5,14 @@
 #include <stdint.h>
 #include <unicorn/unicorn.h>
 
+/* Virtual memory layout. Single source of truth for the engine and tests. */
+#define VM_CODE_ADDRESS  0x100000
+#define VM_CODE_SIZE     0x1000
+#define VM_DATA_ADDRESS  0x110000
+#define VM_DATA_SIZE     0x10000
+#define VM_STACK_ADDRESS 0x200000
+#define VM_STACK_SIZE    0x10000
+
 typedef enum {
     VM_STATUS_READY,
     VM_STATUS_RUNNING,
@@ -57,6 +65,13 @@ int vm_read_memory(TinyVM *vm, uint64_t address, void *buffer, size_t size);
 int vm_write_memory(TinyVM *vm, uint64_t address, const void *buffer, size_t size);
 int vm_run(TinyVM *vm);
 const char *vm_status_string(VMStatus status);
+
+/*
+ * Maps a register name to a Unicorn register id. Only registers that may be
+ * initialized before execution are recognized; returns UC_X86_REG_INVALID
+ * for everything else (including RIP, RSP and RFLAGS).
+ */
+int vm_register_from_name(const char *name);
 void vm_destroy(TinyVM *vm);
 
 #endif

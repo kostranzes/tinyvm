@@ -216,42 +216,6 @@ char *protocol_encode_hex(const uint8_t *buffer, size_t size)
 }
 
 /* ------------------------------------------------------------------ */
-/* Register names                                                      */
-/* ------------------------------------------------------------------ */
-
-int protocol_register_id(const char *name)
-{
-    static const struct {
-        const char *name;
-        int id;
-    } registers[] = {
-        {"rax", UC_X86_REG_RAX},
-        {"rbx", UC_X86_REG_RBX},
-        {"rcx", UC_X86_REG_RCX},
-        {"rdx", UC_X86_REG_RDX},
-        {"rsi", UC_X86_REG_RSI},
-        {"rdi", UC_X86_REG_RDI},
-        {"rbp", UC_X86_REG_RBP},
-        {"r8", UC_X86_REG_R8},
-        {"r9", UC_X86_REG_R9},
-        {"r10", UC_X86_REG_R10},
-        {"r11", UC_X86_REG_R11},
-        {"r12", UC_X86_REG_R12},
-        {"r13", UC_X86_REG_R13},
-        {"r14", UC_X86_REG_R14},
-        {"r15", UC_X86_REG_R15}
-    };
-
-    for (size_t i = 0; i < sizeof(registers) / sizeof(registers[0]); i++) {
-        if (strcmp(name, registers[i].name) == 0) {
-            return registers[i].id;
-        }
-    }
-
-    return UC_X86_REG_INVALID;
-}
-
-/* ------------------------------------------------------------------ */
 /* Response construction                                               */
 /* ------------------------------------------------------------------ */
 
@@ -349,6 +313,46 @@ json_object *protocol_make_response(TinyVM *vm, const char *error)
     }
 
     return response;
+}
+
+json_object *protocol_make_error(const char *error)
+{
+    json_object *response = json_object_new_object();
+
+    if (response == NULL) {
+        return NULL;
+    }
+
+    json_object_object_add(
+        response, "status", json_object_new_string("error")
+    );
+
+    json_object_object_add(
+        response, "instruction_count", json_object_new_int64(0)
+    );
+
+    json_object_object_add(
+        response, "error", json_object_new_string(error)
+    );
+
+    json_object_object_add(
+        response, "registers", json_object_new_null()
+    );
+
+    return response;
+}
+
+const char *protocol_execution_error(const TinyVM *vm)
+{
+    if (vm->status == VM_STATUS_LIMIT_EXCEEDED) {
+        return "instruction_limit_exceeded";
+    }
+
+    if (vm->status == VM_STATUS_ERROR) {
+        return "execution_failed";
+    }
+
+    return NULL;
 }
 
 json_object *protocol_disassembly_to_json(const DisasmResult *result)

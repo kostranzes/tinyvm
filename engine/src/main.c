@@ -1,19 +1,13 @@
+#include "protocol_json.h"
 #include "vm.h"
 
-#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#define MAX_CODE_SIZE 0x1000
-
-static void print_error(const char *error)
+static void report_error(const char *error)
 {
-    printf(
-        "{\"status\":\"error\",\"error\":\"%s\","
-        "\"instruction_count\":0,\"registers\":null}\n",
-        error
-    );
+    protocol_send_response(protocol_make_error(error));
 }
 
 static int load_binary(const char *path, uint8_t *buffer, size_t capacity, size_t *size)
@@ -64,65 +58,23 @@ static int load_binary(const char *path, uint8_t *buffer, size_t capacity, size_
     return 0;
 }
 
-static void print_register(const char *name, uint64_t value, int *first)
-{
-    printf("%s\"%s\":\"0x%016" PRIx64 "\"", *first ? "" : ",", name, value);
-    *first = 0;
-}
-
 static int print_result(TinyVM *vm)
 {
     VMRegisters registers;
 
     if (vm_get_registers(vm, &registers) != 0) {
         fprintf(stderr, "Cannot read VM registers\n");
-        print_error("register_read_failed");
+        report_error("register_read_failed");
         return 1;
     }
 
-    const char *status = vm_status_string(vm->status);
-    const char *error = NULL;
+    const char *error = protocol_execution_error(vm);
 
-    if (vm->status == VM_STATUS_LIMIT_EXCEEDED) {
-        error = "instruction_limit_exceeded";
-    } else if (vm->status == VM_STATUS_ERROR) {
-        error = "execution_failed";
-    } else if (vm->status != VM_STATUS_FINISHED) {
+    if (error == NULL && vm->status != VM_STATUS_FINISHED) {
         error = "unexpected_execution_status";
     }
 
-    printf("{\"status\":\"%s\",\"error\":", status);
-
-    if (error == NULL) {
-        printf("null");
-    } else {
-        printf("\"%s\"", error);
-    }
-
-    printf(",\"instruction_count\":%zu,\"registers\":{", vm->instruction_count);
-
-    int first = 1;
-
-    print_register("rax", registers.rax, &first);
-    print_register("rbx", registers.rbx, &first);
-    print_register("rcx", registers.rcx, &first);
-    print_register("rdx", registers.rdx, &first);
-    print_register("rsi", registers.rsi, &first);
-    print_register("rdi", registers.rdi, &first);
-    print_register("rbp", registers.rbp, &first);
-    print_register("rsp", registers.rsp, &first);
-    print_register("r8", registers.r8, &first);
-    print_register("r9", registers.r9, &first);
-    print_register("r10", registers.r10, &first);
-    print_register("r11", registers.r11, &first);
-    print_register("r12", registers.r12, &first);
-    print_register("r13", registers.r13, &first);
-    print_register("r14", registers.r14, &first);
-    print_register("r15", registers.r15, &first);
-    print_register("rip", registers.rip, &first);
-    print_register("rflags", registers.rflags, &first);
-
-    printf("}}\n");
+    protocol_send_response(protocol_make_response(vm, error));
 
     return vm->status == VM_STATUS_FINISHED ? 0 : 1;
 }
@@ -131,15 +83,15 @@ int main(int argc, char **argv)
 {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <binary_file>\n", argv[0]);
-        print_error("invalid_arguments");
+        report_error("invalid_arguments");
         return 1;
     }
 
-    uint8_t code[MAX_CODE_SIZE];
+    uint8_t code[VM_CODE_SIZE];
     size_t code_size = 0;
 
     if (load_binary(argv[1], code, sizeof(code), &code_size) != 0) {
-        print_error("binary_load_failed");
+        report_error("binary_load_failed");
         return 1;
     }
 
@@ -147,13 +99,13 @@ int main(int argc, char **argv)
 
     if (vm_create(&vm) != 0) {
         fprintf(stderr, "Cannot initialize VM\n");
-        print_error("vm_initialization_failed");
+        report_error("vm_initialization_failed");
         return 1;
     }
 
     if (vm_load_code(&vm, code, code_size) != 0) {
         fprintf(stderr, "Cannot load code into VM\n");
-        print_error("code_load_failed");
+        report_error("code_load_failed");
         vm_destroy(&vm);
         return 1;
     }

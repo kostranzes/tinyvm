@@ -5,6 +5,8 @@ project(tinyvm LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+add_compile_options(-Wall -Wextra -Wpedantic)
+
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(UNICORN REQUIRED IMPORTED_TARGET unicorn)
@@ -23,24 +25,6 @@ target_link_libraries(tinyvm-core PUBLIC
     PkgConfig::CAPSTONE
 )
 
-target_compile_options(tinyvm-core PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-)
-
-add_executable(tinyvm-engine
-    src/main.c
-)
-
-target_link_libraries(tinyvm-engine PRIVATE tinyvm-core)
-
-target_compile_options(tinyvm-engine PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-)
-
 add_library(tinyvm-protocol STATIC
     src/protocol_json.c
 )
@@ -52,23 +36,17 @@ target_link_libraries(tinyvm-protocol PUBLIC
     PkgConfig::JSON_C
 )
 
-target_compile_options(tinyvm-protocol PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
+add_executable(tinyvm-engine
+    src/main.c
 )
+
+target_link_libraries(tinyvm-engine PRIVATE tinyvm-protocol)
 
 add_executable(tinyvm-session
     src/session.c
 )
 
 target_link_libraries(tinyvm-session PRIVATE tinyvm-protocol)
-
-target_compile_options(tinyvm-session PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-)
 
 include(CTest)
 
@@ -81,12 +59,6 @@ if(BUILD_TESTING)
     )
 
     target_link_libraries(tinyvm-tests PRIVATE tinyvm-core)
-
-    target_compile_options(tinyvm-tests PRIVATE
-        -Wall
-        -Wextra
-        -Wpedantic
-    )
 
     add_test(
         NAME vm-tests
@@ -129,12 +101,6 @@ if(BUILD_TESTING)
     )
 
     target_link_libraries(tinyvm-input-tests PRIVATE tinyvm-core)
-
-    target_compile_options(tinyvm-input-tests PRIVATE
-        -Wall
-        -Wextra
-        -Wpedantic
-    )
 
     add_dependencies(tinyvm-input-tests tinyvm-array-sample)
 

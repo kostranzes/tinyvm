@@ -5,8 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_CODE_SIZE 0x1000
-
 static int load_binary(
     const char *path,
     uint8_t *buffer,
@@ -118,7 +116,7 @@ static int test_memory_initialization_rules(void)
 
     if (vm_create(&vm) != 0) goto cleanup;
 
-    if (vm_initialize_memory(&vm, 0x110000, &value, sizeof(value)) == 0) {
+    if (vm_initialize_memory(&vm, VM_DATA_ADDRESS, &value, sizeof(value)) == 0) {
         fprintf(stderr, "Memory initialized before code loading\n");
         goto cleanup;
     }
@@ -221,7 +219,7 @@ static int run_test(const char *name, int result)
 
 int main(int argc, char **argv)
 {
-    uint8_t code[MAX_CODE_SIZE];
+    uint8_t code[VM_CODE_SIZE];
     size_t code_size = 0;
 
     const uint64_t numbers[] = {10, 20, 30, 40, 50};
