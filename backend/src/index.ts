@@ -3,6 +3,8 @@ import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import { config } from './config.js';
 import { pool } from './db.js';
+import { z } from 'zod';
+import { assemble } from './assemble.js';
 
 const app = express();
 
@@ -33,6 +35,33 @@ app.get('/api/health/db', async (_req, res) => {
       database: 'unavailable',
     });
   }
+});
+
+const assembleBody = z.object({
+  source: z.string(),
+});
+
+app.post('/api/assemble', async (req, res) => {
+  const body = assembleBody.safeParse(req.body);
+
+  if (!body.success) {
+    res.status(400).json({ status: 'error', error: 'invalid_request' });
+    return;
+  }
+
+  const result = await assemble(body.data.source);
+
+  if (!result.ok) {
+    const status = result.error === 'internal_error' ? 503 : 400;
+    res.status(status).json({ status: 'error', error: result.error, message: result.message });
+    return;
+  }
+
+  res.json({
+    status: 'ok',
+    size: result.code.length,
+    codeHex: result.code.toString('hex'),
+  });
 });
 
 // Неизвестный маршрут.
