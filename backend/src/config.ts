@@ -1,10 +1,12 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import path from 'node:path';
 
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   CORS_ORIGIN: z.string().min(1).default('http://localhost:5173'),
+  TINYVM_SESSION_BIN: z.string().min(1).default('../engine/build/tinyvm-session'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -21,4 +23,5 @@ export const config = {
   databaseUrl: parsed.data.DATABASE_URL,
   port: parsed.data.PORT,
   corsOrigin: parsed.data.CORS_ORIGIN,
+  sessionBin: path.resolve(parsed.data.TINYVM_SESSION_BIN),
 };
