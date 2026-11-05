@@ -1,12 +1,11 @@
-import 'dotenv/config';
 import pg from 'pg';
+import { config } from './config.js';
 
-const { Pool } = pg;
+export const pool = new pg.Pool({
+  connectionString: config.databaseUrl,
+});
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not configured');
-}
-
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+// Без этого обработчика ошибка на простаивающем соединении роняет процесс.
+pool.on('error', (error) => {
+  console.error('Unexpected error on idle PostgreSQL client:', error);
 });
