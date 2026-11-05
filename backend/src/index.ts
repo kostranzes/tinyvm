@@ -5,6 +5,8 @@ import { config } from './config.js';
 import { pool } from './db.js';
 import { runProgram, runRequestSchema } from './run-program.js';
 import { tryAcquire } from './limiter.js';
+import { sessionsRouter } from './sessions-router.js';
+import { closeAllSessions } from './session-store.js';
 
 const app = express();
 
@@ -97,6 +99,8 @@ app.post('/api/run', async (req, res) => {
   }
 });
 
+app.use('/api/sessions', sessionsRouter);
+
 // Неизвестный маршрут.
 app.use((_req, res) => {
   res.status(404).json({ status: 'error', error: 'not_found' });
@@ -141,10 +145,11 @@ function shutdown(signal: string): void {
 
   server.close(async () => {
     try {
+      await closeAllSessions();
       await pool.end();
       process.exit(0);
     } catch (error) {
-      console.error('Error while closing the pool:', error);
+      console.error('Error while shutting down:', error);
       process.exit(1);
     }
   });

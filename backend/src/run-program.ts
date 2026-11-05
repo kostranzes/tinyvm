@@ -8,7 +8,7 @@ import type { SessionResponse } from './session-client.js';
 const U64_MAX = (1n << 64n) - 1n;
 
 // Число строкой, как в протоколе движка: десятичное или 0x-hex, в пределах 64 бит.
-const u64String = z
+export const u64String = z
   .string()
   .regex(/^([0-9]+|0[xX][0-9a-fA-F]+)$/, 'expected decimal or 0x-hex number')
   .refine((s) => {
@@ -87,7 +87,23 @@ function expectOk(stage: string, response: SessionResponse): void {
   }
 }
 
-export async function runProgram(request: RunRequest): Promise<RunOutcome> {
+export type PrepareOutcome =
+  | { kind: 'assemble_failed'; error: AssembleError; message: string }
+  | { kind: 'setup_failed'; stage: string; error: string }
+  | { kind: 'engine_unavailable'; code: string }
+  | {
+      kind: 'prepared';
+      session: TinyVmSession;
+      codeSize: number;
+      state: SessionResponse;
+      disassembly: SessionResponse;
+    };
+
+// Собирает код, запускает сессию и настраивает её, но не выполняет.
+// При успехе сессию закрывает вызывающий, при любой ошибке она закрыта здесь.
+export async function prepareSession(
+  request: Omit<RunRequest, 'readMemory'>,
+): Promise<PrepareOutcome> {
   const assembled = await assemble(request.source);
   if (!assembled.ok) {
     return { kind: 'assemble_failed', error: assembled.error, message: assembled.message };
@@ -117,6 +133,32 @@ export async function runProgram(request: RunRequest): Promise<RunOutcome> {
       );
     }
 
+    const state = await session.state();
+    expectOk('state', state);
+    const disassembly = await session.disassemble();
+    expectOk('disassemble', disassembly);
+
+    return { kind: 'prepared', session, codeSize: assembled.code.length, state, disassembly };
+  } catch (error) {
+    await session.close();
+    if (error instanceof SetupError) {
+      return { kind: 'setup_failed', stage: error.stage, error: error.code };
+    }
+    if (error instanceof SessionError) {
+      console.error('Session failure:', error.code, error.message);
+      return { kind: 'engine_unavailable', code: error.code };
+    }
+    throw error;
+  }
+}
+
+export async function runProgram(request: RunRequest): Promise<RunOutcome> {
+  const prepared = await prepareSession(request);
+  if (prepared.kind !== 'prepared') return prepared;
+
+  const { session } = prepared;
+
+  try {
     // Ошибка выполнения (например, instruction_limit_exceeded) здесь не исключение:
     // это результат программы пользователя, он возвращается как есть.
     const result = await session.run();
@@ -132,11 +174,8 @@ export async function runProgram(request: RunRequest): Promise<RunOutcome> {
       });
     }
 
-    return { kind: 'ok', codeSize: assembled.code.length, result, memory };
+    return { kind: 'ok', codeSize: prepared.codeSize, result, memory };
   } catch (error) {
-    if (error instanceof SetupError) {
-      return { kind: 'setup_failed', stage: error.stage, error: error.code };
-    }
     if (error instanceof SessionError) {
       console.error('Session failure:', error.code, error.message);
       return { kind: 'engine_unavailable', code: error.code };

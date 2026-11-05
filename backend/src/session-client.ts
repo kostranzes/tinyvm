@@ -141,6 +141,10 @@ export class TinyVmSession {
     return this.child.pid;
   }
 
+  get alive(): boolean {
+    return this.dead === null;
+  }
+
   // ---- Команды протокола ----
 
   load(codeHex: string): Promise<SessionResponse> {
