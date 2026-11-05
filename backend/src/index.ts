@@ -3,13 +3,13 @@ import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import { config } from './config.js';
 import { pool } from './db.js';
-import { z } from 'zod';
-import { assemble } from './assemble.js';
+import { runProgram, runRequestSchema } from './run-program.js';
+import { tryAcquire } from './limiter.js';
 
 const app = express();
 
 app.use(cors({ origin: config.corsOrigin }));
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -37,31 +37,64 @@ app.get('/api/health/db', async (_req, res) => {
   }
 });
 
-const assembleBody = z.object({
-  source: z.string(),
-});
-
-app.post('/api/assemble', async (req, res) => {
-  const body = assembleBody.safeParse(req.body);
+app.post('/api/run', async (req, res) => {
+  const body = runRequestSchema.safeParse(req.body);
 
   if (!body.success) {
-    res.status(400).json({ status: 'error', error: 'invalid_request' });
+    res.status(400).json({
+      status: 'error',
+      error: 'invalid_request',
+      issues: body.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      })),
+    });
     return;
   }
 
-  const result = await assemble(body.data.source);
-
-  if (!result.ok) {
-    const status = result.error === 'internal_error' ? 503 : 400;
-    res.status(status).json({ status: 'error', error: result.error, message: result.message });
+  const release = tryAcquire();
+  if (!release) {
+    res.status(503).json({ status: 'error', error: 'busy' });
     return;
   }
 
-  res.json({
-    status: 'ok',
-    size: result.code.length,
-    codeHex: result.code.toString('hex'),
-  });
+  try {
+    const outcome = await runProgram(body.data);
+
+    switch (outcome.kind) {
+      case 'assemble_failed':
+        res
+          .status(outcome.error === 'internal_error' ? 503 : 400)
+          .json({ status: 'error', error: outcome.error, message: outcome.message });
+        return;
+      case 'setup_failed':
+        res.status(400).json({
+          status: 'error',
+          error: 'setup_failed',
+          stage: outcome.stage,
+          engineError: outcome.error,
+        });
+        return;
+      case 'engine_unavailable':
+        res.status(503).json({ status: 'error', error: 'engine_unavailable' });
+        return;
+      case 'ok':
+        res.json({
+          status: 'ok',
+          codeSize: outcome.codeSize,
+          result: {
+            status: outcome.result.status,
+            instructionCount: outcome.result.instruction_count,
+            registers: outcome.result.registers,
+            error: outcome.result.error,
+          },
+          memory: outcome.memory,
+        });
+        return;
+    }
+  } finally {
+    release();
+  }
 });
 
 // Неизвестный маршрут.
