@@ -124,4 +124,84 @@ describe.skipIf(!process.env.TINYVM_E2E)('сквозные проверки че
     expect(status).toBe(404);
     expect(json.error).toBe('task_not_found');
   });
+
+  const REFERENCE: Record<string, string> = {
+    'array-max': [
+      'mov rax, [rdi]',
+      'mov rcx, 1',
+      'check:',
+      'cmp rcx, rsi',
+      'jae done',
+      'mov rdx, [rdi + rcx * 8]',
+      'cmp rdx, rax',
+      'jbe skip',
+      'mov rax, rdx',
+      'skip:',
+      'inc rcx',
+      'jmp check',
+      'done:',
+    ].join('\n'),
+    'array-reverse': [
+      'test rsi, rsi',
+      'jz done',
+      'lea rdx, [rdi + rsi * 8 - 8]',
+      'again:',
+      'cmp rdi, rdx',
+      'jae done',
+      'mov rax, [rdi]',
+      'mov rcx, [rdx]',
+      'mov [rdi], rcx',
+      'mov [rdx], rax',
+      'add rdi, 8',
+      'sub rdx, 8',
+      'jmp again',
+      'done:',
+    ].join('\n'),
+    factorial: [
+      'mov rax, 1',
+      'again:',
+      'test rdi, rdi',
+      'jz done',
+      'imul rax, rdi',
+      'dec rdi',
+      'jmp again',
+      'done:',
+    ].join('\n'),
+  };
+
+  it('GET /api/tasks: четыре задания', async () => {
+    const { json } = await call('GET', '/api/tasks');
+    const slugs = (json.tasks as Array<{ slug: string }>).map((task) => task.slug);
+
+    expect(slugs).toEqual(
+      expect.arrayContaining(['array-sum', 'array-max', 'array-reverse', 'factorial']),
+    );
+  });
+
+  it.each(Object.keys(REFERENCE))('эталонное решение %s принимается', async (slug) => {
+    const { status, json } = await call('POST', `/api/tasks/${slug}/submit`, {
+      source: REFERENCE[slug],
+    });
+
+    expect(status).toBe(200);
+    expect(json.verdict, JSON.stringify(json)).toBe('accepted');
+    expect(json.passed).toBe(json.total);
+  });
+
+  it('array-max: решение со знаковым сравнением не проходит', async () => {
+    const source = REFERENCE['array-max']!.replace('jbe skip', 'jle skip');
+    const { json } = await call('POST', '/api/tasks/array-max/submit', { source });
+
+    expect(json.verdict).toBe('wrong_answer');
+    expect(json.failedTest.hidden).toBe(true);
+    expect(json.failedTest).not.toHaveProperty('mismatches');
+  });
+
+  it('array-reverse: пустая программа не проходит, расхождение по памяти видно', async () => {
+    const { json } = await call('POST', '/api/tasks/array-reverse/submit', { source: 'nop' });
+
+    expect(json.verdict).toBe('wrong_answer');
+    expect(json.failedTest.hidden).toBe(false);
+    expect(json.failedTest.mismatches[0].what).toContain('memory 0x110000');
+  });
 });
