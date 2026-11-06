@@ -61,6 +61,28 @@ const testExpectedSchema = z.object({
     .default([]),
 });
 
+// Сравнивает регистры из expected с фактическими. Числа сравниваются как числа:
+// "10", "0xa" и "0x000000000000000a" это одно и то же значение.
+export function compareRegisters(
+  expected: Record<string, string>,
+  actual: Record<string, string> | null,
+): Mismatch[] {
+  const mismatches: Mismatch[] = [];
+
+  for (const [name, value] of Object.entries(expected)) {
+    const got = actual?.[name];
+    if (got === undefined || BigInt(got) !== BigInt(value)) {
+      mismatches.push({
+        what: name,
+        expected: `0x${BigInt(value).toString(16).padStart(16, '0')}`,
+        actual: got ?? 'unavailable',
+      });
+    }
+  }
+
+  return mismatches;
+}
+
 export async function judgeSubmission(
   source: string,
   instructionLimit: number,
@@ -116,18 +138,7 @@ export async function judgeSubmission(
       }
 
       const registers = result.registers as Record<string, string> | null;
-      const mismatches: Mismatch[] = [];
-
-      for (const [name, value] of Object.entries(expected.registers)) {
-        const actual = registers?.[name];
-        if (actual === undefined || BigInt(actual) !== BigInt(value)) {
-          mismatches.push({
-            what: name,
-            expected: `0x${BigInt(value).toString(16).padStart(16, '0')}`,
-            actual: actual ?? 'unavailable',
-          });
-        }
-      }
+      const mismatches = compareRegisters(expected.registers, registers);
 
       for (const item of expected.memory) {
         const size = item.data.length / 2;
