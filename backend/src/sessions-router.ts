@@ -6,6 +6,7 @@ import { prepareSession, runRequestSchema, u64String } from './run-program.js';
 import { SessionError } from './session-client.js';
 import type { SessionResponse, TinyVmSession } from './session-client.js';
 import { addSession, getSession, removeSession, reserveSession } from './session-store.js';
+import { heavyLimiter } from './rate-limit.js';
 
 export const sessionsRouter = Router();
 
@@ -69,7 +70,7 @@ async function withSession(
   }
 }
 
-sessionsRouter.post('/', async (req, res) => {
+sessionsRouter.post('/', heavyLimiter, async (req, res) => {
   const body = createSchema.safeParse(req.body);
   if (!body.success) {
     invalidRequest(res, body.error);

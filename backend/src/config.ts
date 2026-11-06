@@ -9,6 +9,8 @@ const schema = z.object({
   TINYVM_SESSION_BIN: z.string().min(1).default('../engine/build/tinyvm-session'),
   TINYVM_SESSION_MODE: z.enum(['docker', 'host']).default('docker'),
   TINYVM_SESSION_IMAGE: z.string().min(1).default('tinyvm-engine'),
+  RATE_LIMIT_GENERAL_PER_MIN: z.coerce.number().int().min(1).default(300),
+  RATE_LIMIT_HEAVY_PER_MIN: z.coerce.number().int().min(1).default(30),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -28,4 +30,6 @@ export const config = {
   sessionBin: path.resolve(parsed.data.TINYVM_SESSION_BIN),
   sessionMode: parsed.data.TINYVM_SESSION_MODE,
   sessionImage: parsed.data.TINYVM_SESSION_IMAGE,
+  rateLimitGeneralPerMin: parsed.data.RATE_LIMIT_GENERAL_PER_MIN,
+  rateLimitHeavyPerMin: parsed.data.RATE_LIMIT_HEAVY_PER_MIN,
 };

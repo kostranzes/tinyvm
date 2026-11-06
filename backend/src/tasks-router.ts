@@ -5,6 +5,7 @@ import { pool } from './db.js';
 import { tryAcquire } from './limiter.js';
 import { judgeSubmission } from './judge.js';
 import type { TestRow } from './judge.js';
+import { heavyLimiter } from './rate-limit.js';
 
 export const tasksRouter = Router();
 
@@ -69,7 +70,7 @@ tasksRouter.get('/:slug', async (req, res) => {
 
 const submitSchema = z.object({ source: z.string() });
 
-tasksRouter.post('/:slug/submit', async (req, res) => {
+tasksRouter.post('/:slug/submit', heavyLimiter, async (req, res) => {
   const slug = slugSchema.safeParse(req.params.slug);
   if (!slug.success) {
     notFound(res);

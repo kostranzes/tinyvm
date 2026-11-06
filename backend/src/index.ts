@@ -8,10 +8,14 @@ import { tryAcquire } from './limiter.js';
 import { sessionsRouter } from './sessions-router.js';
 import { closeAllSessions } from './session-store.js';
 import { tasksRouter } from './tasks-router.js';
+import helmet from 'helmet';
+import { generalLimiter, heavyLimiter } from './rate-limit.js';
 
 const app = express();
 
+app.use(helmet());
 app.use(cors({ origin: config.corsOrigin }));
+app.use('/api', generalLimiter);
 app.use(express.json({ limit: '256kb' }));
 
 app.get('/api/health', (_req, res) => {
@@ -40,7 +44,7 @@ app.get('/api/health/db', async (_req, res) => {
   }
 });
 
-app.post('/api/run', async (req, res) => {
+app.post('/api/run', heavyLimiter, async (req, res) => {
   const body = runRequestSchema.safeParse(req.body);
 
   if (!body.success) {
