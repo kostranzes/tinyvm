@@ -547,6 +547,184 @@ def test_instruction_limit(session_path):
     finally:
         stop_session(process)
 
+def run_to_end(session_path, code_hex, limit=None, registers=None, mode="run"):
+    """Загружает программу и выполняет её до конца через `run` или цепочкой `step`."""
+    process = start_session(session_path)
+
+    try:
+        expect_success(send(process, {"command": "load", "code": code_hex}))
+
+        if limit is not None:
+            expect_success(
+                send(
+                    process,
+                    {"command": "set_instruction_limit", "limit": str(limit)},
+                )
+            )
+
+        for name, value in (registers or {}).items():
+            expect_success(
+                send(
+                    process,
+                    {"command": "set_register", "register": name, "value": value},
+                )
+            )
+
+        if mode == "run":
+            return send(process, {"command": "run"})
+
+        while True:
+            response = send(process, {"command": "step"})
+
+            if response["status"] not in ("ready", "running"):
+                return response
+
+    finally:
+        stop_session(process)
+
+
+def test_run_instruction_limit_boundaries(session_path):
+    cases = [
+        # (код, лимит, статус, ошибка, число инструкций)
+        ("90", 1, "finished", None, 1),
+        ("9090", 1, "limit_exceeded", "instruction_limit_exceeded", 1),
+        ("909090", 3, "finished", None, 3),
+        ("909090", 2, "limit_exceeded", "instruction_limit_exceeded", 2),
+        ("ebfe", 50000, "limit_exceeded", "instruction_limit_exceeded", 50000),
+    ]
+
+    for code, limit, status, error, count in cases:
+        response = run_to_end(session_path, code, limit=limit)
+
+        assert response["status"] == status, (code, limit, response)
+        assert response["error"] == error, (code, limit, response)
+        assert response["instruction_count"] == count, (code, limit, response)
+
+    print("[PASS] Run stops exactly at the instruction limit")
+
+
+def test_run_matches_step(session_path):
+    # (название, код, регистры, статус, число инструкций)
+    programs = [
+        ("nops", "909090", {}, "finished", 3),
+        ("add", "4889f84801f0", {"rdi": "2", "rsi": "3"}, "finished", 2),
+        ("unmapped read", "488b042500009000", {}, "error", 0),
+        ("add, then unmapped read", "4889f8488b042500009000", {}, "error", 1),
+        ("jump into data", "ffe0", {"rax": "0x110000"}, "error", 0),
+        ("jump past the code end", "eb10", {}, "error", 1),
+        ("ret on empty stack", "c3", {}, "error", 0),
+        ("infinite loop", "ebfe", {}, "limit_exceeded", 1000),
+    ]
+
+    for name, code, registers, status, count in programs:
+        by_run = run_to_end(session_path, code, registers=registers, mode="run")
+        by_step = run_to_end(session_path, code, registers=registers, mode="step")
+
+        assert by_run["status"] == status, (name, by_run)
+        assert by_run["instruction_count"] == count, (name, by_run)
+
+        assert by_step["status"] == by_run["status"], (name, by_run, by_step)
+        assert by_step["instruction_count"] == by_run["instruction_count"], (
+            name,
+            by_run,
+            by_step,
+        )
+        assert (by_step["error"] is None) == (by_run["error"] is None), (
+            name,
+            by_run,
+            by_step,
+        )
+        assert by_step["registers"]["rax"] == by_run["registers"]["rax"], (
+            name,
+            by_run,
+            by_step,
+        )
+
+    print("[PASS] Run and step agree on status and instruction count")
+
+
+def test_step_then_run(session_path):
+    process = start_session(session_path)
+
+    try:
+        expect_success(send(process, {"command": "load", "code": "90909090"}))
+        expect_success(send(process, {"command": "step"}))
+        expect_success(send(process, {"command": "step"}))
+
+        response = send(process, {"command": "run"})
+        expect_success(response)
+        assert response["status"] == "finished", response
+        assert response["instruction_count"] == 4, response
+
+    finally:
+        stop_session(process)
+
+    process = start_session(session_path)
+
+    try:
+        expect_success(send(process, {"command": "load", "code": "ebfe"}))
+        expect_success(
+            send(process, {"command": "set_instruction_limit", "limit": "5"})
+        )
+        expect_success(send(process, {"command": "step"}))
+        expect_success(send(process, {"command": "step"}))
+
+        response = send(process, {"command": "run"})
+        assert response["error"] == "instruction_limit_exceeded", response
+        assert response["status"] == "limit_exceeded", response
+        assert response["instruction_count"] == 5, response
+
+    finally:
+        stop_session(process)
+
+    print("[PASS] Run continues after single steps")
+
+
+def read_peak_rss_kb(pid):
+    try:
+        with open(f"/proc/{pid}/status") as file:
+            for line in file:
+                if line.startswith("VmHWM:"):
+                    return int(line.split()[1])
+    except OSError:
+        pass
+
+    return None
+
+
+def test_million_instructions(session_path):
+    process = start_session(session_path)
+
+    try:
+        expect_success(send(process, {"command": "load", "code": "ebfe"}))
+        expect_success(
+            send(
+                process,
+                {"command": "set_instruction_limit", "limit": "1000000"},
+            )
+        )
+
+        started = time.monotonic()
+        response = send(process, {"command": "run"})
+        elapsed = time.monotonic() - started
+
+        assert response["error"] == "instruction_limit_exceeded", response
+        assert response["status"] == "limit_exceeded", response
+        assert response["instruction_count"] == 1000000, response
+        assert elapsed < 20, elapsed
+
+        # Раньше `run` вызывал uc_emu_start на каждую инструкцию, и память росла
+        # примерно на 0,42 КБ за инструкцию (около 436 МБ на миллион).
+        peak = read_peak_rss_kb(process.pid)
+
+        if peak is None:
+            print("[SKIP] Memory use of a long run (no /proc)")
+        else:
+            assert peak < 200 * 1024, f"peak RSS {peak} KB"
+            print("[PASS] A million instructions run in bounded memory")
+
+    finally:
+        stop_session(process)
 
 def test_large_memory_initialization(session_path):
     process = start_session(session_path)
@@ -813,6 +991,10 @@ def main():
     test_nul_byte(session_path)
     test_program_not_loaded(session_path)
     test_instruction_limit(session_path)
+    test_run_instruction_limit_boundaries(session_path)
+    test_run_matches_step(session_path)
+    test_step_then_run(session_path)
+    test_million_instructions(session_path)
     test_large_memory_initialization(session_path)
     test_oversized_request(session_path)
     test_idle_timeout(session_path)
