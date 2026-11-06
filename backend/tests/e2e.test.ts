@@ -204,4 +204,82 @@ describe.skipIf(!process.env.TINYVM_E2E)('сквозные проверки че
     expect(json.failedTest.hidden).toBe(false);
     expect(json.failedTest.mismatches[0].what).toContain('memory 0x110000');
   });
+
+  async function authCall(method: string, path: string, body?: unknown, cookie?: string) {
+    const response = await fetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cookie ? { Cookie: cookie } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const setCookie = response.headers.getSetCookie().join('; ');
+    const match = /tinyvm_sid=([^;]*)/.exec(setCookie);
+    return {
+      status: response.status,
+      json: (await response.json()) as Record<string, any>,
+      cookie: match && match[1] ? `tinyvm_sid=${match[1]}` : undefined,
+      setCookie,
+    };
+  }
+
+  it('регистрация, вход, /me и выход', async () => {
+    const email = `e2e-${Date.now()}@example.com`;
+    const password = 'correct horse battery';
+
+    const registered = await authCall('POST', '/api/auth/register', { email, password });
+    expect(registered.status).toBe(201);
+    expect(registered.json.user.email).toBe(email);
+    expect(registered.setCookie).toContain('HttpOnly');
+    expect(registered.setCookie).toContain('SameSite=Lax');
+    expect(registered.cookie).toBeDefined();
+
+    const me = await authCall('GET', '/api/auth/me', undefined, registered.cookie);
+    expect(me.status).toBe(200);
+    expect(me.json.user.email).toBe(email);
+
+    expect((await authCall('GET', '/api/auth/me')).status).toBe(401);
+
+    const duplicate = await authCall('POST', '/api/auth/register', {
+      email: email.toUpperCase(),
+      password,
+    });
+    expect(duplicate.status).toBe(409);
+
+    const wrong = await authCall('POST', '/api/auth/login', { email, password: 'wrong wrong wrong' });
+    expect(wrong.status).toBe(401);
+    expect(wrong.json.error).toBe('invalid_credentials');
+
+    const unknown = await authCall('POST', '/api/auth/login', {
+      email: 'nobody-here@example.com',
+      password,
+    });
+    expect(unknown.status).toBe(401);
+    expect(unknown.json).toEqual(wrong.json);
+
+    const login = await authCall('POST', '/api/auth/login', { email, password });
+    expect(login.status).toBe(200);
+    expect(login.cookie).toBeDefined();
+    expect(login.cookie).not.toBe(registered.cookie);
+
+    expect((await authCall('POST', '/api/auth/logout', undefined, login.cookie)).status).toBe(200);
+    expect((await authCall('GET', '/api/auth/me', undefined, login.cookie)).status).toBe(401);
+    // Вторая сессия при этом остаётся рабочей.
+    expect((await authCall('GET', '/api/auth/me', undefined, registered.cookie)).status).toBe(200);
+  });
+
+  it('слабый пароль и некорректный email отклоняются', async () => {
+    const short = await authCall('POST', '/api/auth/register', {
+      email: `short-${Date.now()}@example.com`,
+      password: 'short',
+    });
+    expect(short.status).toBe(400);
+
+    const bad = await authCall('POST', '/api/auth/register', {
+      email: 'not-an-email',
+      password: 'correct horse battery',
+    });
+    expect(bad.status).toBe(400);
+  });
 });

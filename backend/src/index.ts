@@ -10,11 +10,26 @@ import { closeAllSessions } from './session-store.js';
 import { tasksRouter } from './tasks-router.js';
 import helmet from 'helmet';
 import { generalLimiter, heavyLimiter } from './rate-limit.js';
+import { authRouter } from './auth-router.js';
 
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: config.corsOrigin }));
+app.use(cors({ origin: config.corsOrigin, credentials: true }));
+
+// Небольшая защита от CSRF сверх SameSite=Lax: небезопасные запросы с чужого
+// сайта отклоняются. Запросы без заголовка Origin (curl, тесты) проходят.
+app.use((req, res, next) => {
+  const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+  const origin = req.headers.origin;
+
+  if (unsafe && origin !== undefined && origin !== config.corsOrigin) {
+    res.status(403).json({ status: 'error', error: 'forbidden_origin' });
+    return;
+  }
+  next();
+});
+
 app.use('/api', generalLimiter);
 app.use(express.json({ limit: '256kb' }));
 
@@ -106,6 +121,7 @@ app.post('/api/run', heavyLimiter, async (req, res) => {
 
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/tasks', tasksRouter);
+app.use('/api/auth', authRouter);
 
 // Неизвестный маршрут.
 app.use((_req, res) => {

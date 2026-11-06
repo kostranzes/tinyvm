@@ -11,6 +11,8 @@ const schema = z.object({
   TINYVM_SESSION_IMAGE: z.string().min(1).default('tinyvm-engine'),
   RATE_LIMIT_GENERAL_PER_MIN: z.coerce.number().int().min(1).default(300),
   RATE_LIMIT_HEAVY_PER_MIN: z.coerce.number().int().min(1).default(30),
+  COOKIE_SECURE: z.enum(['true', 'false']).default('false'),
+  RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().min(1).default(10),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -32,4 +34,6 @@ export const config = {
   sessionImage: parsed.data.TINYVM_SESSION_IMAGE,
   rateLimitGeneralPerMin: parsed.data.RATE_LIMIT_GENERAL_PER_MIN,
   rateLimitHeavyPerMin: parsed.data.RATE_LIMIT_HEAVY_PER_MIN,
+  cookieSecure: parsed.data.COOKIE_SECURE === 'true',
+  rateLimitAuthPerMin: parsed.data.RATE_LIMIT_AUTH_PER_MIN,
 };
