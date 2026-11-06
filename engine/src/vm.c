@@ -369,20 +369,137 @@ int vm_step(TinyVM *vm)
     return vm_check_rip(vm, rip);
 }
 
+typedef struct {
+    uint64_t code_end;
+    size_t executed;       /* инструкций, перед которыми сработал хук */
+} RunContext;
+
+static void run_code_hook(
+    uc_engine *uc,
+    uint64_t address,
+    uint32_t size,
+    void *user_data
+)
+{
+    RunContext *ctx = user_data;
+
+    (void)size;
+
+    if (address > ctx->code_end) {
+        /* Переход в нули за концом программы: дальше не выполняем. */
+        uc_emu_stop(uc);
+        return;
+    }
+
+    ctx->executed++;
+}
+
 int vm_run(TinyVM *vm)
 {
     if (vm == NULL || vm->uc == NULL) {
         return 1;
     }
 
-    while (vm->status == VM_STATUS_READY ||
-           vm->status == VM_STATUS_RUNNING) {
-        if (vm_step(vm) != 0) {
-            break;
-        }
+    if (vm->status != VM_STATUS_READY &&
+        vm->status != VM_STATUS_RUNNING) {
+        return vm->status == VM_STATUS_FINISHED ? 0 : 1;
     }
 
-    return vm->status == VM_STATUS_FINISHED ? 0 : 1;
+    if (!vm_has_loaded_code(vm)) {
+        fprintf(stderr, "No code loaded into VM\n");
+        vm->status = VM_STATUS_ERROR;
+        return 1;
+    }
+
+    uint64_t rip = 0;
+    uc_err err = uc_reg_read(vm->uc, UC_X86_REG_RIP, &rip);
+
+    if (err != UC_ERR_OK) {
+        fprintf(stderr, "Failed to read RIP: %s\n", uc_strerror(err));
+        vm->status = VM_STATUS_ERROR;
+        return 1;
+    }
+
+    if (vm_check_rip(vm, rip) != 0 || vm->status == VM_STATUS_FINISHED) {
+        return vm->status == VM_STATUS_FINISHED ? 0 : 1;
+    }
+
+    if (vm->instruction_count >= vm->instruction_limit) {
+        fprintf(stderr, "Instruction limit exceeded (%zu)\n",
+                vm->instruction_limit);
+        vm->status = VM_STATUS_LIMIT_EXCEEDED;
+        return 1;
+    }
+
+    size_t budget = vm->instruction_limit - vm->instruction_count;
+    RunContext ctx = {vm->code_end, 0};
+    uc_hook hook;
+
+    uc_cb_hookcode_t callback = run_code_hook;
+    void *callback_ptr;
+
+    memcpy(&callback_ptr, &callback, sizeof(callback_ptr));
+
+    err = uc_hook_add(
+        vm->uc, &hook, UC_HOOK_CODE, callback_ptr, &ctx,
+        VM_CODE_ADDRESS, VM_CODE_ADDRESS + VM_CODE_SIZE - 1
+    );
+
+    if (err != UC_ERR_OK) {
+        fprintf(stderr, "Failed to install the run hook: %s\n",
+                uc_strerror(err));
+        vm->status = VM_STATUS_ERROR;
+        return 1;
+    }
+
+    vm->status = VM_STATUS_RUNNING;
+
+    err = uc_emu_start(vm->uc, rip, vm->code_end, 0, budget);
+    uc_hook_del(vm->uc, hook);
+
+    size_t executed = ctx.executed;
+
+    if (err != UC_ERR_OK) {
+        /* Инструкция, при выполнении которой возникла ошибка, не считается
+         * (как при пошаговом выполнении). */
+        if (executed > 0) {
+            executed--;
+        }
+
+        vm->instruction_count += executed;
+        fprintf(stderr, "VM step failed: %s\n", uc_strerror(err));
+        vm->status = VM_STATUS_ERROR;
+        return 1;
+    }
+
+    vm->instruction_count += executed;
+
+    err = uc_reg_read(vm->uc, UC_X86_REG_RIP, &rip);
+
+    if (err != UC_ERR_OK) {
+        fprintf(stderr, "Failed to read RIP: %s\n", uc_strerror(err));
+        vm->status = VM_STATUS_ERROR;
+        return 1;
+    }
+
+    if (vm_check_rip(vm, rip) != 0) {
+        return 1;
+    }
+
+    if (vm->status == VM_STATUS_FINISHED) {
+        return 0;
+    }
+
+    if (executed >= budget) {
+        fprintf(stderr, "Instruction limit exceeded (%zu)\n",
+                vm->instruction_limit);
+        vm->status = VM_STATUS_LIMIT_EXCEEDED;
+        return 1;
+    }
+
+    fprintf(stderr, "Execution stopped unexpectedly\n");
+    vm->status = VM_STATUS_ERROR;
+    return 1;
 }
 
 const char *vm_status_string(VMStatus status)
