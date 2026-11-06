@@ -7,6 +7,7 @@ import { runProgram, runRequestSchema } from './run-program.js';
 import { tryAcquire } from './limiter.js';
 import { sessionsRouter } from './sessions-router.js';
 import { closeAllSessions } from './session-store.js';
+import { tasksRouter } from './tasks-router.js';
 
 const app = express();
 
@@ -100,6 +101,7 @@ app.post('/api/run', async (req, res) => {
 });
 
 app.use('/api/sessions', sessionsRouter);
+app.use('/api/tasks', tasksRouter);
 
 // Неизвестный маршрут.
 app.use((_req, res) => {
