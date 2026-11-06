@@ -99,20 +99,16 @@ export type PrepareOutcome =
       disassembly: SessionResponse;
     };
 
-// Собирает код, запускает сессию и настраивает её, но не выполняет.
+// Запускает сессию из готовых байтов и настраивает её, но не выполняет.
 // При успехе сессию закрывает вызывающий, при любой ошибке она закрыта здесь.
-export async function prepareSession(
-  request: Omit<RunRequest, 'readMemory'>,
+export async function prepareFromCode(
+  code: Buffer,
+  request: Omit<RunRequest, 'source' | 'readMemory'>,
 ): Promise<PrepareOutcome> {
-  const assembled = await assemble(request.source);
-  if (!assembled.ok) {
-    return { kind: 'assemble_failed', error: assembled.error, message: assembled.message };
-  }
-
   const session = new TinyVmSession({ binaryPath: config.sessionBin });
 
   try {
-    expectOk('load', await session.load(assembled.code.toString('hex')));
+    expectOk('load', await session.load(code.toString('hex')));
 
     for (const [name, value] of Object.entries(request.registers)) {
       if (value === undefined) continue;
@@ -138,7 +134,7 @@ export async function prepareSession(
     const disassembly = await session.disassemble();
     expectOk('disassemble', disassembly);
 
-    return { kind: 'prepared', session, codeSize: assembled.code.length, state, disassembly };
+    return { kind: 'prepared', session, codeSize: code.length, state, disassembly };
   } catch (error) {
     await session.close();
     if (error instanceof SetupError) {
@@ -150,6 +146,16 @@ export async function prepareSession(
     }
     throw error;
   }
+}
+
+export async function prepareSession(
+  request: Omit<RunRequest, 'readMemory'>,
+): Promise<PrepareOutcome> {
+  const assembled = await assemble(request.source);
+  if (!assembled.ok) {
+    return { kind: 'assemble_failed', error: assembled.error, message: assembled.message };
+  }
+  return prepareFromCode(assembled.code, request);
 }
 
 export async function runProgram(request: RunRequest): Promise<RunOutcome> {
