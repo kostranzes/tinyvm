@@ -105,7 +105,11 @@ export async function prepareFromCode(
   code: Buffer,
   request: Omit<RunRequest, 'source' | 'readMemory'>,
 ): Promise<PrepareOutcome> {
-  const session = new TinyVmSession({ binaryPath: config.sessionBin });
+  const session = new TinyVmSession({
+    mode: config.sessionMode,
+    binaryPath: config.sessionBin,
+    image: config.sessionImage,
+  });
 
   try {
     expectOk('load', await session.load(code.toString('hex')));

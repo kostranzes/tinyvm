@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 const MAX_LINE_CHARS = 2 * 1024 * 1024;
 const MAX_STDERR_CHARS = 4096;
@@ -60,7 +61,9 @@ export interface SessionResponse {
 }
 
 export interface SessionOptions {
-  binaryPath: string;
+  mode: 'docker' | 'host';
+  binaryPath: string; // для режима host
+  image: string; // для режима docker
   commandTimeoutMs?: number;
 }
 
@@ -88,6 +91,7 @@ export class TinyVmSession {
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly commandTimeoutMs: number;
   private readonly exited: Promise<void>;
+  private readonly containerName: string | null;
   private buffer = '';
   private stderrTail = '';
   private pending: Pending | null = null;
@@ -98,11 +102,33 @@ export class TinyVmSession {
   constructor(options: SessionOptions) {
     this.commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
 
-    // Единственное место, где запускается движок. Позже здесь может быть `docker run`.
-    this.child = spawn(options.binaryPath, [], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: {}, // не отдаём процессу DATABASE_URL и прочие секреты backend
-    });
+    // Единственное место, где запускается движок.
+    if (options.mode === 'docker') {
+      this.containerName = `tinyvm-session-${randomUUID()}`;
+      this.child = spawn(
+        'docker',
+        [
+          'run', '--rm', '-i',
+          '--name', this.containerName,
+          '--network', 'none',
+          '--read-only',
+          '--cap-drop', 'ALL',
+          '--security-opt', 'no-new-privileges',
+          '--memory', '256m',
+          '--memory-swap', '256m',
+          '--cpus', '1',
+          '--pids-limit', '64',
+          options.image,
+        ],
+        { stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+    } else {
+      this.containerName = null;
+      this.child = spawn(options.binaryPath, [], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: {}, // не отдаём процессу DATABASE_URL и прочие секреты backend
+      });
+    }
 
     this.child.stdout.setEncoding('utf8');
     this.child.stderr.setEncoding('utf8');
@@ -214,7 +240,7 @@ export class TinyVmSession {
       this.dead = new SessionError('session_closed', 'Session is closed');
     }
     this.child.stdin.end();
-    const killer = setTimeout(() => this.child.kill('SIGKILL'), CLOSE_GRACE_MS);
+    const killer = setTimeout(() => this.killProcess(), CLOSE_GRACE_MS);
     await this.exited;
     clearTimeout(killer);
     return last;
@@ -305,6 +331,15 @@ export class TinyVmSession {
       this.pending = null;
     }
 
+    this.killProcess();;
+  }
+
+  // Убивает процесс. В режиме docker kill клиента не останавливает контейнер,
+  // поэтому его убиваем по имени.
+  private killProcess(): void {
+    if (this.containerName) {
+      spawn('docker', ['kill', this.containerName], { stdio: 'ignore' }).on('error', () => {});
+    }
     this.child.kill('SIGKILL');
   }
 }
