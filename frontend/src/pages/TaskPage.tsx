@@ -4,6 +4,7 @@ import { api, describeError } from '../api'
 import type { Task } from '../api'
 import { CodeEditor } from '../editor/CodeEditor'
 import { SubmitPanel } from '../components/SubmitPanel'
+import { RunPanel } from '../components/RunPanel'
 
 // Результат запроса хранится вместе со slug, для которого он получен.
 // Пока slug в адресе и в результате не совпадают, показываем загрузку.
@@ -67,6 +68,7 @@ function TaskView({ slug, task }: { slug: string; task: Task }) {
 
       <h2>Решение</h2>
       <CodeEditor initialValue={task.starterCode} onChange={setSource} />
+      <RunPanel source={source} defaultLimit={task.instructionLimit} />
       <SubmitPanel slug={slug} source={source} />
 
       <h2>Примеры тестов</h2>

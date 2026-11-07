@@ -61,6 +61,35 @@ export interface SubmitResult {
   }
 }
 
+export interface RunRequest {
+  source: string
+  registers?: Record<string, string>
+  memory?: { address: string; data: string }[]
+  instructionLimit?: number
+  readMemory?: { address: string; size: number }[]
+}
+
+// Состояние движка. Тот же формат будет у отладочных сессий.
+export interface EngineState {
+  status: string
+  instructionCount: number
+  registers: Record<string, string>
+  error: unknown
+}
+
+export interface MemoryRead {
+  address?: string
+  size?: number
+  data?: string
+  error?: unknown
+}
+
+export interface RunResult {
+  codeSize: number
+  result: EngineState
+  memory?: MemoryRead[]
+}
+
 // Ошибка запроса. status = 0 означает, что до сервера не достучались.
 export class ApiError extends Error {
   status: number
@@ -123,6 +152,7 @@ export const api = {
     request<{ task: Task }>('GET', `/api/tasks/${encodeURIComponent(slug)}`).then((r) => r.task),
   submit: (slug: string, source: string) =>
     request<SubmitResult>('POST', `/api/tasks/${encodeURIComponent(slug)}/submit`, { source }),
+  run: (req: RunRequest) => request<RunResult>('POST', '/api/run', req),
 }
 
 // Текст ошибки для пользователя.
@@ -149,6 +179,18 @@ export function describeError(error: unknown): string {
       return 'Сервер занят проверкой других решений. Повторите через несколько секунд.'
     case 'engine_unavailable':
       return 'Движок недоступен (проблема на сервере). Попробуйте позже.'
+    case 'assembly_failed':
+      return 'Не удалось собрать программу.'
+    case 'forbidden_directive':
+      return 'В коде есть запрещённая директива (%include, incbin и подобные).'
+    case 'source_too_large':
+      return 'Исходный код слишком большой.'
+    case 'code_too_large':
+      return 'Машинный код больше 4096 байт.'
+    case 'empty_output':
+      return 'Программа после сборки пустая.'
+    case 'setup_failed':
+      return 'Движок отклонил начальные данные.'
     default:
       return `Ошибка сервера (${error.status}: ${error.code}).`
   }
