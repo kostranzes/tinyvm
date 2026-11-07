@@ -9,6 +9,29 @@ export interface User {
   email: string
 }
 
+export interface TaskSummary {
+  slug: string
+  title: string
+  difficulty: string
+}
+
+export interface VisibleTest {
+  position: number
+  // Формат см. backend/README.md, раздел Tasks. Пока показываем как JSON.
+  input: unknown
+  expected: unknown
+}
+
+export interface Task {
+  title: string
+  description: string
+  starterCode: string
+  instructionLimit: number
+  difficulty: string
+  visibleTests: VisibleTest[]
+  hiddenTestCount: number
+}
+
 // Ошибка запроса. status = 0 означает, что до сервера не достучались.
 export class ApiError extends Error {
   status: number
@@ -66,6 +89,9 @@ export const api = {
     request<{ user: User }>('POST', '/api/auth/login', { email, password }),
   logout: () => request<{ status: string }>('POST', '/api/auth/logout'),
   me: () => request<{ user: User }>('GET', '/api/auth/me'),
+  tasks: () => request<{ tasks: TaskSummary[] }>('GET', '/api/tasks'),
+  task: (slug: string) =>
+    request<{ task: Task }>('GET', `/api/tasks/${encodeURIComponent(slug)}`).then((r) => r.task),
 }
 
 // Текст ошибки для пользователя.
@@ -84,6 +110,8 @@ export function describeError(error: unknown): string {
       return 'Слишком много попыток. Подождите минуту.'
     case 'forbidden_origin':
       return 'Сервер отклонил запрос из-за Origin. Открывайте сайт как http://localhost:5173.'
+    case 'task_not_found':
+      return 'Такой задачи нет.'
     default:
       return `Ошибка сервера (${error.status}: ${error.code}).`
   }
