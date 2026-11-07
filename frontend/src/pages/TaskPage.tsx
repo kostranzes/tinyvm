@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { api, describeError } from '../api'
 import type { Task } from '../api'
+import { CodeEditor } from '../editor/CodeEditor'
 
 // Результат запроса хранится вместе со slug, для которого он получен.
 // Пока slug в адресе и в результате не совпадают, показываем загрузку.
@@ -43,13 +44,16 @@ export function TaskPage() {
       ) : 'error' in current ? (
         <p className="error">{current.error}</p>
       ) : (
-        <TaskView task={current.task} />
+        // key: при переходе на другую задачу редактор создаётся заново со своим стартовым кодом
+        <TaskView key={current.slug} task={current.task} />
       )}
     </>
   )
 }
 
 function TaskView({ task }: { task: Task }) {
+  const [source, setSource] = useState(task.starterCode)
+
   return (
     <>
       <h1>
@@ -60,8 +64,11 @@ function TaskView({ task }: { task: Task }) {
       <h2>Описание</h2>
       <p className="description">{task.description}</p>
 
-      <h2>Стартовый код</h2>
-      <pre>{task.starterCode}</pre>
+      <h2>Решение</h2>
+      <CodeEditor initialValue={task.starterCode} onChange={setSource} />
+      <p className="muted">
+        Строк: {source.split('\n').length}, символов: {source.length}
+      </p>
 
       <h2>Примеры тестов</h2>
       {task.visibleTests.map((test) => (
