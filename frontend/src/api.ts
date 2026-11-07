@@ -32,6 +32,35 @@ export interface Task {
   hiddenTestCount: number
 }
 
+export type Verdict =
+  | 'accepted'
+  | 'wrong_answer'
+  | 'runtime_error'
+  | 'limit_exceeded'
+  | 'assembly_error'
+
+export interface Mismatch {
+  what: string
+  expected: unknown
+  actual: unknown
+}
+
+export interface SubmitResult {
+  status: string
+  submissionId: number
+  verdict: Verdict
+  passed?: number
+  total?: number
+  instructionCount?: number
+  message?: string
+  failedTest?: {
+    position: number
+    hidden: boolean
+    mismatches?: Mismatch[]
+    engineError?: string
+  }
+}
+
 // Ошибка запроса. status = 0 означает, что до сервера не достучались.
 export class ApiError extends Error {
   status: number
@@ -92,6 +121,8 @@ export const api = {
   tasks: () => request<{ tasks: TaskSummary[] }>('GET', '/api/tasks'),
   task: (slug: string) =>
     request<{ task: Task }>('GET', `/api/tasks/${encodeURIComponent(slug)}`).then((r) => r.task),
+  submit: (slug: string, source: string) =>
+    request<SubmitResult>('POST', `/api/tasks/${encodeURIComponent(slug)}/submit`, { source }),
 }
 
 // Текст ошибки для пользователя.
@@ -112,6 +143,12 @@ export function describeError(error: unknown): string {
       return 'Сервер отклонил запрос из-за Origin. Открывайте сайт как http://localhost:5173.'
     case 'task_not_found':
       return 'Такой задачи нет.'
+    case 'unauthorized':
+      return 'Нужно войти.'
+    case 'busy':
+      return 'Сервер занят проверкой других решений. Повторите через несколько секунд.'
+    case 'engine_unavailable':
+      return 'Движок недоступен (проблема на сервере). Попробуйте позже.'
     default:
       return `Ошибка сервера (${error.status}: ${error.code}).`
   }

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router'
 import { api, describeError } from '../api'
 import type { Task } from '../api'
 import { CodeEditor } from '../editor/CodeEditor'
+import { SubmitPanel } from '../components/SubmitPanel'
 
 // Результат запроса хранится вместе со slug, для которого он получен.
 // Пока slug в адресе и в результате не совпадают, показываем загрузку.
@@ -45,13 +46,13 @@ export function TaskPage() {
         <p className="error">{current.error}</p>
       ) : (
         // key: при переходе на другую задачу редактор создаётся заново со своим стартовым кодом
-        <TaskView key={current.slug} task={current.task} />
+        <TaskView key={current.slug} slug={current.slug} task={current.task} />
       )}
     </>
   )
 }
 
-function TaskView({ task }: { task: Task }) {
+function TaskView({ slug, task }: { slug: string; task: Task }) {
   const [source, setSource] = useState(task.starterCode)
 
   return (
@@ -66,9 +67,7 @@ function TaskView({ task }: { task: Task }) {
 
       <h2>Решение</h2>
       <CodeEditor initialValue={task.starterCode} onChange={setSource} />
-      <p className="muted">
-        Строк: {source.split('\n').length}, символов: {source.length}
-      </p>
+      <SubmitPanel slug={slug} source={source} />
 
       <h2>Примеры тестов</h2>
       {task.visibleTests.map((test) => (
