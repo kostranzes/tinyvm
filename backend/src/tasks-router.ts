@@ -6,6 +6,7 @@ import { tryAcquire } from './limiter.js';
 import { judgeSubmission } from './judge.js';
 import type { TestRow } from './judge.js';
 import { heavyLimiter } from './rate-limit.js';
+import { requireAuth } from './auth-middleware.js';
 
 export const tasksRouter = Router();
 
@@ -70,7 +71,7 @@ tasksRouter.get('/:slug', async (req, res) => {
 
 const submitSchema = z.object({ source: z.string() });
 
-tasksRouter.post('/:slug/submit', heavyLimiter, async (req, res) => {
+tasksRouter.post('/:slug/submit', requireAuth, heavyLimiter, async (req, res) => {
   const slug = slugSchema.safeParse(req.params.slug);
   if (!slug.success) {
     notFound(res);
@@ -132,9 +133,16 @@ tasksRouter.post('/:slug/submit', heavyLimiter, async (req, res) => {
     };
 
     const saved = await pool.query(
-      `INSERT INTO submissions (task_id, source, verdict, instruction_count, details)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [task.id, body.data.source, outcome.verdict, outcome.instructionCount, JSON.stringify(details)],
+      `INSERT INTO submissions (task_id, user_id, source, verdict, instruction_count, details)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [
+        task.id,
+        req.user!.id,
+        body.data.source,
+        outcome.verdict,
+        outcome.instructionCount,
+        JSON.stringify(details),
+      ],
     );
 
     // Для скрытого теста наружу уходят только номер и пометка hidden.

@@ -11,8 +11,6 @@ function fake(alive = true) {
   return { session, close };
 }
 
-// Модуль хранит состояние и сам запускает таймер очистки, поэтому каждый тест
-// получает его заново и работает на фальшивых часах.
 beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
@@ -24,42 +22,56 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-describe('session-store: лимит', () => {
-  it('резервирует не больше 8 мест', () => {
-    const held = Array.from({ length: 8 }, () => store.reserveSession());
+describe('session-store: лимиты', () => {
+  it('всего не больше 8 сессий', () => {
+    for (let user = 1; user <= 4; user++) {
+      for (let i = 0; i < 2; i++) expect(store.reserveSession(user).ok).toBe(true);
+    }
 
-    expect(held.every((release) => release !== null)).toBe(true);
-    expect(store.reserveSession()).toBeNull();
-
-    held[0]!();
-    expect(store.reserveSession()).not.toBeNull();
+    expect(store.reserveSession(5)).toMatchObject({ ok: false, reason: 'server_full' });
   });
 
-  it('готовые сессии и резервы считаются вместе', () => {
-    for (let i = 0; i < 7; i++) store.addSession(fake().session);
+  it('на пользователя не больше 2, резервы и готовые сессии считаются вместе', () => {
+    store.addSession(fake().session, 1);
 
-    expect(store.reserveSession()).not.toBeNull();
-    expect(store.reserveSession()).toBeNull();
+    expect(store.reserveSession(1).ok).toBe(true);
+    expect(store.reserveSession(1)).toMatchObject({ ok: false, reason: 'user_limit' });
+    expect(store.reserveSession(2).ok).toBe(true);
+  });
+
+  it('освобождённый резерв можно занять снова, повторное освобождение безопасно', () => {
+    const first = store.reserveSession(1);
+    const second = store.reserveSession(1);
+    if (!first.ok || !second.ok) throw new Error('expected reservations');
+
+    first.release();
+    first.release();
+
+    expect(store.reserveSession(1).ok).toBe(true);
+    expect(store.reserveSession(1)).toMatchObject({ ok: false, reason: 'user_limit' });
   });
 });
 
-describe('session-store: хранение', () => {
-  it('отдаёт сессию по id и закрывает её при удалении ровно один раз', async () => {
+describe('session-store: владелец', () => {
+  it('чужая сессия недоступна и не удаляется', async () => {
     const { session, close } = fake();
-    const id = store.addSession(session);
+    const id = store.addSession(session, 1);
 
-    expect(store.getSession(id)).toBe(session);
-    expect(await store.removeSession(id)).toBe(true);
-    expect(await store.removeSession(id)).toBe(false);
-    expect(store.getSession(id)).toBeUndefined();
+    expect(store.getSession(id, 2)).toBeUndefined();
+    expect(await store.removeOwnedSession(id, 2)).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+
+    expect(store.getSession(id, 1)).toBe(session);
+    expect(await store.removeOwnedSession(id, 1)).toBe(true);
+    expect(await store.removeOwnedSession(id, 1)).toBe(false);
     expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('closeAllSessions закрывает все', async () => {
     const a = fake();
     const b = fake();
-    store.addSession(a.session);
-    store.addSession(b.session);
+    store.addSession(a.session, 1);
+    store.addSession(b.session, 2);
 
     await store.closeAllSessions();
 
@@ -71,35 +83,34 @@ describe('session-store: хранение', () => {
 describe('session-store: очистка', () => {
   it('закрывает сессию, которой не пользуются больше 5 минут', async () => {
     const { session, close } = fake();
-    const id = store.addSession(session);
+    const id = store.addSession(session, 1);
 
     await vi.advanceTimersByTimeAsync(6 * 60_000);
 
-    expect(store.getSession(id)).toBeUndefined();
+    expect(store.getSession(id, 1)).toBeUndefined();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('обращения продлевают жизнь, но не дольше 30 минут', async () => {
     const { session, close } = fake();
-    const id = store.addSession(session);
+    const id = store.addSession(session, 1);
 
-    // Раз в 4 минуты обращаемся к сессии: простоя нет, но возраст растёт.
     for (let i = 0; i < 8; i++) {
       await vi.advanceTimersByTimeAsync(4 * 60_000);
-      store.getSession(id);
+      store.getSession(id, 1);
     }
 
-    expect(store.getSession(id)).toBeUndefined();
+    expect(store.getSession(id, 1)).toBeUndefined();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('убирает сессию с умершим процессом в течение 30 секунд', async () => {
     const { session, close } = fake(false);
-    const id = store.addSession(session);
+    const id = store.addSession(session, 1);
 
     await vi.advanceTimersByTimeAsync(31_000);
 
-    expect(store.getSession(id)).toBeUndefined();
+    expect(store.getSession(id, 1)).toBeUndefined();
     expect(close).toHaveBeenCalledTimes(1);
   });
 });

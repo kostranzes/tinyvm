@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeAll } from 'vitest';
 
 const BASE = process.env.TINYVM_E2E_URL ?? 'http://localhost:3000';
 
@@ -18,10 +18,15 @@ const ARRAY_SUM = [
 // Проходит видимый тест, проваливает скрытый.
 const WRONG_ON_HIDDEN = 'xor rax, rax\ntest rsi, rsi\njz d\nmov rax, 10\nd:';
 
-async function call(method: string, path: string, body?: unknown) {
+const auth = { cookie: '' };
+
+async function call(method: string, path: string, body?: unknown, cookie: string = auth.cookie) {
   const response = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(cookie ? { Cookie: cookie } : {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await response.text();
@@ -224,6 +229,22 @@ describe.skipIf(!process.env.TINYVM_E2E)('сквозные проверки че
     };
   }
 
+  beforeAll(async () => {
+    const registered = await authCall('POST', '/api/auth/register', {
+      email: `e2e-main-${Date.now()}@example.com`,
+      password: 'correct horse battery',
+    });
+    auth.cookie = registered.cookie ?? '';
+  });
+
+  async function registerOther() {
+    const other = await authCall('POST', '/api/auth/register', {
+      email: `e2e-other-${Date.now()}@example.com`,
+      password: 'correct horse battery',
+    });
+    return other.cookie ?? '';
+  }
+
   it('регистрация, вход, /me и выход', async () => {
     const email = `e2e-${Date.now()}@example.com`;
     const password = 'correct horse battery';
@@ -281,5 +302,57 @@ describe.skipIf(!process.env.TINYVM_E2E)('сквозные проверки че
       password: 'correct horse battery',
     });
     expect(bad.status).toBe(400);
+  });
+  
+  it('аноним не может запускать код, сессии и отправки', async () => {
+    const requests = [
+      ['POST', '/api/run', { source: 'nop' }],
+      ['POST', '/api/sessions', { source: 'nop' }],
+      ['POST', '/api/tasks/array-sum/submit', { source: 'nop' }],
+      ['GET', '/api/me/submissions', undefined],
+    ] as const;
+
+    for (const [method, path, body] of requests) {
+      expect((await call(method, path, body, '')).status, path).toBe(401);
+    }
+    expect((await call('GET', '/api/tasks', undefined, '')).status).toBe(200);
+  });
+
+  it('сессия принадлежит владельцу, на пользователя не больше двух', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const created = await call('POST', '/api/sessions', { source: 'nop' });
+      expect(created.status).toBe(201);
+      ids.push(created.json.sessionId as string);
+    }
+
+    const third = await call('POST', '/api/sessions', { source: 'nop' });
+    expect(third.status).toBe(429);
+    expect(third.json.error).toBe('too_many_user_sessions');
+
+    const other = await registerOther();
+    expect((await call('GET', `/api/sessions/${ids[0]}/state`, undefined, other)).status).toBe(404);
+    expect((await call('DELETE', `/api/sessions/${ids[0]}`, undefined, other)).status).toBe(404);
+    expect((await call('GET', `/api/sessions/${ids[0]}/state`)).status).toBe(200);
+
+    for (const id of ids) {
+      expect((await call('DELETE', `/api/sessions/${id}`)).status).toBe(200);
+    }
+  });
+
+  it('история отправок: только свои, с кодом решения', async () => {
+    const submitted = await call('POST', '/api/tasks/array-sum/submit', { source: 'mov rax, 1' });
+    const id = submitted.json.submissionId as number;
+
+    const list = await call('GET', '/api/me/submissions');
+    expect(list.json.submissions.some((item: { id: number }) => item.id === id)).toBe(true);
+
+    const one = await call('GET', `/api/me/submissions/${id}`);
+    expect(one.status).toBe(200);
+    expect(one.json.submission.source).toBe('mov rax, 1');
+
+    const other = await registerOther();
+    expect((await call('GET', `/api/me/submissions/${id}`, undefined, other)).status).toBe(404);
+    expect((await call('GET', '/api/me/submissions', undefined, other)).json.submissions).toEqual([]);
   });
 });

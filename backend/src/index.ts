@@ -11,6 +11,8 @@ import { tasksRouter } from './tasks-router.js';
 import helmet from 'helmet';
 import { generalLimiter, heavyLimiter } from './rate-limit.js';
 import { authRouter } from './auth-router.js';
+import { requireAuth } from './auth-middleware.js';
+import { meRouter } from './me-router.js';
 
 const app = express();
 
@@ -59,7 +61,7 @@ app.get('/api/health/db', async (_req, res) => {
   }
 });
 
-app.post('/api/run', heavyLimiter, async (req, res) => {
+app.post('/api/run', requireAuth, heavyLimiter, async (req, res) => {
   const body = runRequestSchema.safeParse(req.body);
 
   if (!body.success) {
@@ -122,6 +124,7 @@ app.post('/api/run', heavyLimiter, async (req, res) => {
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/me', meRouter);
 
 // Неизвестный маршрут.
 app.use((_req, res) => {

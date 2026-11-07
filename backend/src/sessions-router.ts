@@ -5,10 +5,12 @@ import { tryAcquire } from './limiter.js';
 import { prepareSession, runRequestSchema, u64String } from './run-program.js';
 import { SessionError } from './session-client.js';
 import type { SessionResponse, TinyVmSession } from './session-client.js';
-import { addSession, getSession, removeSession, reserveSession } from './session-store.js';
+import { addSession, getSession, removeOwnedSession, removeSession, reserveSession } from './session-store.js';
 import { heavyLimiter } from './rate-limit.js';
+import { requireAuth } from './auth-middleware.js';
 
 export const sessionsRouter = Router();
+sessionsRouter.use(requireAuth);
 
 const createSchema = runRequestSchema.omit({ readMemory: true });
 
@@ -50,7 +52,7 @@ async function withSession(
   action: (session: TinyVmSession) => Promise<void>,
 ): Promise<void> {
   const id = idSchema.safeParse(req.params.id);
-  const session = id.success ? getSession(id.data) : undefined;
+  const session = id.success ? getSession(id.data, req.user!.id) : undefined;
 
   if (!id.success || !session) {
     res.status(404).json({ status: 'error', error: 'session_not_found' });
@@ -77,11 +79,16 @@ sessionsRouter.post('/', heavyLimiter, async (req, res) => {
     return;
   }
 
-  const releaseSlot = reserveSession();
-  if (!releaseSlot) {
-    res.status(503).json({ status: 'error', error: 'too_many_sessions' });
+  const reservation = reserveSession(req.user!.id);
+  if (!reservation.ok) {
+    if (reservation.reason === 'user_limit') {
+      res.status(429).json({ status: 'error', error: 'too_many_user_sessions' });
+    } else {
+      res.status(503).json({ status: 'error', error: 'too_many_sessions' });
+    }
     return;
   }
+  const releaseSlot = reservation.release;
 
   // Подготовка запускает Docker для NASM, поэтому занимает слот общего лимита.
   const releaseRun = tryAcquire();
@@ -112,7 +119,7 @@ sessionsRouter.post('/', heavyLimiter, async (req, res) => {
         res.status(503).json({ status: 'error', error: 'engine_unavailable' });
         return;
       case 'prepared': {
-        const sessionId = addSession(outcome.session);
+        const sessionId = addSession(outcome.session, req.user!.id);
         res.status(201).json({
           status: 'ok',
           sessionId,
@@ -188,7 +195,7 @@ sessionsRouter.post('/:id/memory', (req, res) =>
 
 sessionsRouter.delete('/:id', async (req, res) => {
   const id = idSchema.safeParse(req.params.id);
-  const removed = id.success && (await removeSession(id.data));
+  const removed = id.success && (await removeOwnedSession(id.data, req.user!.id));
 
   if (!removed) {
     res.status(404).json({ status: 'error', error: 'session_not_found' });
