@@ -13,8 +13,10 @@ export type ChatStatus = 'idle' | 'connecting' | 'online' | 'offline'
 
 export interface ChatMessage {
   id: string
-  kind: 'message' | 'system'
+  kind: 'message' | 'system' | 'private'
   sender: string | null
+  // только для kind: 'private': получатель
+  to?: string
   text: string
   timestamp: string
 }
@@ -48,6 +50,21 @@ function parseHistory(value: unknown): ChatMessage[] {
       },
     ]
   })
+}
+
+// «/pm Имя текст». В именах бывают пробелы, поэтому берём самое длинное имя
+// из списка онлайн, с которого начинается остаток строки.
+function parsePm(text: string, users: string[]): { to: string; message: string } | null {
+  const rest = text.trim().replace(/^\/pm\s+/i, '')
+  let best: string | null = null
+  for (const u of users) {
+    if (rest.toLowerCase().startsWith(u.toLowerCase() + ' ') && (best === null || u.length > best.length)) {
+      best = u
+    }
+  }
+  if (best === null) return null
+  const message = rest.slice(best.length).trim()
+  return message === '' ? null : { to: best, message }
 }
 
 export function useChat() {
@@ -222,6 +239,19 @@ export function useChat() {
             timestamp: str(msg.timestamp),
           })
           break
+        case 'private': {
+          const sender = str(msg.sender)
+          pushMessage({
+            id: str(msg.id) || `p-${Date.now()}`,
+            kind: 'private',
+            sender,
+            to: str(msg.to),
+            text: str(msg.message),
+            timestamp: str(msg.timestamp),
+          })
+          setTypingUser(sender, false)
+          break
+        }
         case 'typing':
           setTypingUser(str(msg.name), msg.isTyping === true)
           break
@@ -269,6 +299,19 @@ export function useChat() {
   function send(text: string): boolean {
     const trimmed = text.trim()
     if (trimmed === '') return false
+
+    if (/^\/pm(\s|$)/i.test(trimmed)) {
+      const pm = parsePm(trimmed, users)
+      if (pm === null) {
+        setError('Формат: /pm Имя текст. Получатель должен быть в списке «Онлайн».')
+        return false
+      }
+      setError(null)
+      sendRaw({ type: 'private', to: pm.to, message: pm.message })
+      notifyTyping(false)
+      return true
+    }
+
     setError(null)
     sendRaw({ type: 'message', message: trimmed })
     notifyTyping(false)

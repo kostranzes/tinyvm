@@ -36,6 +36,7 @@ export function SupportPage() {
   const [nameInput, setNameInput] = useState(() => defaultName(user?.email))
   const [text, setText] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const { messages } = chat
 
   // Новые сообщения: прокрутка вниз.
@@ -58,7 +59,14 @@ export function SupportPage() {
 
   function handleInput(value: string) {
     setText(value)
-    chat.notifyTyping(value.trim() !== '')
+    // Личные сообщения не должны показывать другим индикатор набора.
+    chat.notifyTyping(value.trim() !== '' && !/^\/pm\s/i.test(value))
+  }
+
+  function startPm(user: string) {
+    setText(`/pm ${user} `)
+    chat.notifyTyping(false)
+    inputRef.current?.focus()
   }
 
   if (!inChat) {
@@ -113,28 +121,53 @@ export function SupportPage() {
       </div>
       <div className="chat-users">
         <span className="muted">Онлайн ({chat.users.length}):</span>
-        {chat.users.map((u) => (
-          <span key={u} className={u === chat.name ? 'chat-user me' : 'chat-user'}>
-            {u}
-          </span>
-        ))}
+        {chat.users.map((u) =>
+          u === chat.name ? (
+            <span key={u} className="chat-user me">
+              {u}
+            </span>
+          ) : (
+            <button
+              key={u}
+              type="button"
+              className="chat-user"
+              title="Написать лично"
+              onClick={() => startPm(u)}
+            >
+              {u}
+            </button>
+          ),
+        )}
       </div>
       <div className="chat-messages" ref={listRef}>
-        {messages.map((m) =>
-          m.kind === 'system' ? (
-            <div key={m.id} className="chat-msg system">
-              {m.text}
-            </div>
-          ) : (
-            <div key={m.id} className={m.sender === chat.name ? 'chat-msg self' : 'chat-msg other'}>
+        {messages.map((m) => {
+          if (m.kind === 'system') {
+            return (
+              <div key={m.id} className="chat-msg system">
+                {m.text}
+              </div>
+            )
+          }
+          const mine = m.sender === chat.name
+          const classes = ['chat-msg', mine ? 'self' : 'other', m.kind === 'private' ? 'private' : '']
+            .filter(Boolean)
+            .join(' ')
+          return (
+            <div key={m.id} className={classes}>
               <div className="chat-meta">
-                <span className="chat-sender">{m.sender}</span>
+                <span className="chat-sender">
+                  {m.kind === 'private'
+                    ? mine
+                      ? `вы → ${m.to}`
+                      : `${m.sender} → вам`
+                    : m.sender}
+                </span>
                 <span>{formatTime(m.timestamp)}</span>
               </div>
               <div className="chat-text">{m.text}</div>
             </div>
-          ),
-        )}
+          )
+        })}
       </div>
 
       <div className="chat-typing">{typingText(chat.typing)}</div>
@@ -143,8 +176,9 @@ export function SupportPage() {
       <form className="chat-input" onSubmit={handleSend}>
         <input
           value={text}
+          ref={inputRef}
           onChange={(e) => handleInput(e.target.value)}
-          placeholder="Введите сообщение…"
+          placeholder="Сообщение или /pm Имя текст"
           maxLength={MAX_TEXT}
           disabled={!online}
           autoFocus

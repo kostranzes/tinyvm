@@ -37,6 +37,8 @@ const ERRORS = {
   not_joined: 'Сначала войдите в чат.',
   already_joined: 'Вы уже в чате.',
   message_too_long: `Сообщение длиннее ${MAX_TEXT} символов.`,
+  user_not_found: 'Такого пользователя нет в чате.',
+  pm_self: 'Нельзя написать самому себе.',
   rate_limited: 'Слишком часто. Подождите несколько секунд.',
 } as const
 
@@ -46,6 +48,7 @@ const incoming = z.discriminatedUnion('type', [
   z.object({ type: z.literal('join'), name: z.string() }),
   z.object({ type: z.literal('message'), message: z.string() }),
   z.object({ type: z.literal('typing'), isTyping: z.boolean() }),
+  z.object({ type: z.literal('private'), to: z.string(), message: z.string() }),
 ])
 
 interface Client {
@@ -128,6 +131,14 @@ export async function startChatServer(options: ChatOptions): Promise<ChatServer>
       if (client.name !== null && client.name.toLowerCase() === lower) return true
     }
     return false
+  }
+
+  function findByName(name: string): { ws: WebSocket; name: string } | null {
+    const lower = name.trim().toLowerCase()
+    for (const [ws, c] of clients) {
+      if (c.name !== null && c.name.toLowerCase() === lower) return { ws, name: c.name }
+    }
+    return null
   }
 
   // Список имён вошедших участников рассылается всем при каждом входе и выходе.
@@ -222,6 +233,28 @@ export async function startChatServer(options: ChatOptions): Promise<ChatServer>
         case 'typing': {
           if (client.name === null) return sendError(ws, 'not_joined')
           broadcast({ type: 'typing', name: client.name, isTyping: msg.isTyping }, ws)
+          break
+        }
+
+        case 'private': {
+          if (client.name === null) return sendError(ws, 'not_joined')
+          const text = msg.message.trim()
+          if (text === '') return
+          if (text.length > MAX_TEXT) return sendError(ws, 'message_too_long')
+          const target = findByName(msg.to)
+          if (target === null) return sendError(ws, 'user_not_found')
+          if (target.ws === ws) return sendError(ws, 'pm_self')
+          const entry = {
+            type: 'private',
+            sender: client.name,
+            to: target.name,
+            message: text,
+            timestamp: new Date().toISOString(),
+            id: randomUUID(),
+          }
+          // Только получателю и отправителю. В историю не попадает.
+          send(target.ws, entry)
+          send(ws, entry)
           break
         }
       }

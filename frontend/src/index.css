@@ -854,3 +854,23 @@ main.wide {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+.chat-msg.private {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+.chat-msg.private .chat-sender {
+  color: var(--accent);
+}
+
+/* Имя в списке онлайн, на которое можно нажать */
+button.chat-user {
+  padding: 0 8px;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+}
