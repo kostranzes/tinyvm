@@ -18,6 +18,10 @@ import type { ChatServer } from './chat.js';
 
 const app = express();
 
+// Перед backend стоит один обратный прокси (Caddy): берём IP клиента из
+// X-Forwarded-For. Без этого лимиты по IP считались бы по адресу прокси.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin, credentials: true }));
 
