@@ -2,12 +2,13 @@
 
 HTTP API for the TinyVM platform: it assembles NASM code, runs it in the
 sandboxed engine (see [engine/README.md](../engine/README.md)), serves tasks,
-judges submissions and manages accounts.
+judges submissions, manages accounts and hosts a WebSocket support chat.
 
 ```text
 Browser ──HTTP──▶ Backend (Express 5) ──docker run──▶ tinyvm-nasm      (assembly)
                        │            └──docker run──▶ tinyvm-engine    (execution, JSON Lines)
                   PostgreSQL
+Browser ──WebSocket──▶ Chat server (ws, same process, its own port)
 ```
 
 ## Requirements
@@ -33,7 +34,7 @@ npm install
 # create backend/.env (see below), then:
 npm run migrate
 
-# 4. Run
+# 4. Run (HTTP on :3000, chat on ws://localhost:8080)
 npm run dev
 ```
 
@@ -54,7 +55,8 @@ server with a message naming the variable.
 |---|---|---|
 | `DATABASE_URL` | required | PostgreSQL connection string |
 | `PORT` | `3000` | HTTP port |
-| `CORS_ORIGIN` | `http://localhost:5173` | The only allowed browser origin |
+| `CORS_ORIGIN` | `http://localhost:5173` | The only allowed browser origin, for HTTP (CORS) and for the chat handshake |
+| `CHAT_PORT` | `8080` | Port of the WebSocket chat server; if it is busy the backend exits at startup |
 | `COOKIE_SECURE` | `false` | Set `true` behind HTTPS so the session cookie is `Secure` |
 | `TINYVM_SESSION_MODE` | `docker` | `docker` runs the engine in a container, `host` runs the binary directly (debugging only) |
 | `TINYVM_SESSION_IMAGE` | `tinyvm-engine` | Engine image for `docker` mode |
@@ -198,6 +200,52 @@ users get `404`.
 - `GET /api/me/submissions/:id` returns one with `source` and `details`. Other users'
   submissions give `404`.
 
+## Support chat (WebSocket)
+
+One public room for everyone, served by `src/chat.ts` on `ws://localhost:CHAT_PORT`
+(default 8080) from the same process. It does not use the HTTP session: a guest can
+join too, and the name is whatever the client sends in `join` (the frontend pre-fills
+it from the account email). Nothing is stored in the database.
+
+The handshake is rejected with `401` unless the `Origin` header equals `CORS_ORIGIN`
+(WebSocket has no CORS, so the server checks it). Every frame is one JSON object with
+a `type`. Binary frames and invalid JSON give `invalid_message`.
+
+Client to server:
+
+| Frame | Meaning |
+|---|---|
+| `{type: "join", name}` | Enter the room. Name: 1-24 characters, no control characters, unique case-insensitively. Must be the first frame. |
+| `{type: "message", message}` | Public message, up to 1000 characters. The sender name is taken from the connection, not from the frame. |
+| `{type: "typing", isTyping}` | Typing indicator, sent to everyone except the sender. |
+| `{type: "private", to, message}` | Private message to the user `to` (case-insensitive). |
+
+Server to client:
+
+| Frame | Meaning |
+|---|---|
+| `joined` `{name}` | Join accepted, `name` is the normalized name |
+| `history` `{messages}` | Up to 50 latest public messages, sent right after `joined` |
+| `users` `{users}` | Names of everyone in the room, sent to all on every join and leave |
+| `system` `{message, timestamp, id}` | "joined" / "left" notices and the welcome |
+| `message` `{sender, message, timestamp, id}` | Public message, `timestamp` is ISO 8601 |
+| `typing` `{name, isTyping}` | Someone started or stopped typing |
+| `private` `{sender, to, message, timestamp, id}` | Sent only to the recipient and the sender; not stored in the history |
+| `error` `{code, message}` | `invalid_message`, `invalid_name`, `name_taken`, `not_joined`, `already_joined`, `message_too_long`, `rate_limited`, `user_not_found`, `pm_self` |
+
+Limits: 4096 bytes per frame (larger frames are rejected by the library and the
+connection is closed), 30 frames per 10 seconds per connection, 100 connections. A
+connection that does not send `join` within 30 seconds is closed with `1008`. The
+server pings every 30 seconds and terminates a connection that did not answer the
+previous ping. A full server closes with `1013`, a shutdown with `1001`.
+
+Manual check without a browser:
+
+```bash
+npx wscat -c ws://localhost:8080 -o http://localhost:5173
+# then type: {"type":"join","name":"Anna"}
+```
+
 ## Tasks
 
 Tasks live in the database and are added by migrations (there is no admin interface).
@@ -222,12 +270,15 @@ A test is JSON: `input` has `registers` and `memory` in the `/api/run` format;
 - Passwords are hashed with scrypt (salted, parameters stored with the hash).
   Login tokens are random, only their SHA-256 is stored, and logout revokes them.
 - `helmet` headers, per-IP and per-user rate limits, a 256 KB body limit.
+- The chat checks `Origin` on the handshake, limits frame size, message and name
+  length, frame rate and connection count, and validates every frame with `zod`.
+  Message text is never trusted as markup: the frontend renders it as plain text.
 
 ## Layout
 
 ```text
 src/
-  index.ts            app, health, /api/run, shutdown
+  index.ts            app, health, /api/run, starts the chat, shutdown
   config.ts           environment (zod)
   db.ts               PostgreSQL pool
   migrate.ts          migration runner
@@ -238,6 +289,7 @@ src/
   run-program.ts      request schema, prepare/run
   judge.ts            submission checking
   tasks-router.ts     /api/tasks, submit
+  chat.ts             WebSocket support chat (own port)
   auth.ts, auth-middleware.ts, auth-router.ts, password.ts   accounts
   me-router.ts        /api/me
   limiter.ts          4 concurrent runs
@@ -253,7 +305,12 @@ tests/                vitest: unit tests and optional e2e
 - Debug sessions live in memory and disappear on restart.
 - Deployment is not covered: the backend needs the Docker CLI and daemon access,
   which is powerful; behind a reverse proxy set `trust proxy`, `COOKIE_SECURE=true`
-  and `CORS_ORIGIN`.
+  and `CORS_ORIGIN`, and forward WebSocket upgrades to the chat port (or use `wss://`).
+- Chat: the history lives in memory and disappears on restart; names are not bound
+  to accounts, so anyone can take any free name; there is no `wss://` yet and no
+  automated test for the chat.
+- `npm run dev` (`tsx watch`) does not exit after a startup failure such as an
+  occupied port; it waits for a file change. `node dist/index.js` exits with code 1.
 - Any engine container death (including out-of-memory) is reported as
   `503 engine_unavailable`.
 - Each submission starts one container per test, so a check takes 1-2 seconds.
