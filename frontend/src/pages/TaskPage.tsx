@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { api, describeError } from '../api'
 import type { Task } from '../api'
-import { CodeEditor } from '../editor/CodeEditor'
-import { SubmitPanel } from '../components/SubmitPanel'
-import { RunPanel } from '../components/RunPanel'
+import { Workspace } from '../components/Workspace'
 
 // Результат запроса хранится вместе со slug, для которого он получен.
 // Пока slug в адресе и в результате не совпадают, показываем загрузку.
@@ -46,7 +44,7 @@ export function TaskPage() {
       ) : 'error' in current ? (
         <p className="error">{current.error}</p>
       ) : (
-        // key: при переходе на другую задачу редактор создаётся заново со своим стартовым кодом
+        // key: при переходе на другую задачу рабочая область создаётся заново
         <TaskView key={current.slug} slug={current.slug} task={current.task} />
       )}
     </>
@@ -54,22 +52,18 @@ export function TaskPage() {
 }
 
 function TaskView({ slug, task }: { slug: string; task: Task }) {
-  const [source, setSource] = useState(task.starterCode)
-
   return (
     <>
       <h1>
         {task.title} <span className="badge">{task.difficulty}</span>
       </h1>
-      <p className="muted">Лимит инструкций: {task.instructionLimit}</p>
 
-      <h2>Описание</h2>
-      <p className="description">{task.description}</p>
+      <details className="task-desc" open>
+        <summary>Описание · лимит инструкций: {task.instructionLimit}</summary>
+        <p className="description">{task.description}</p>
+      </details>
 
-      <h2>Решение</h2>
-      <CodeEditor initialValue={task.starterCode} onChange={setSource} />
-      <RunPanel source={source} defaultLimit={task.instructionLimit} />
-      <SubmitPanel slug={slug} source={source} />
+      <Workspace slug={slug} starterCode={task.starterCode} defaultLimit={task.instructionLimit} />
 
       <h2>Примеры тестов</h2>
       {task.visibleTests.map((test) => (

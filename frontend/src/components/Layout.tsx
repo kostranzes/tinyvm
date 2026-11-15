@@ -1,9 +1,10 @@
-import { Link, Outlet, useNavigate } from 'react-router'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/auth-context'
 
 export function Layout() {
   const { user, loading, logout } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
 
   async function handleLogout() {
     try {
@@ -37,7 +38,9 @@ export function Layout() {
           )}
         </nav>
       </header>
-      <main>{loading ? <p className="muted">Загрузка…</p> : <Outlet />}</main>
+      <main className={pathname.startsWith('/tasks/') ? 'wide' : undefined}>
+        {loading ? <p className="muted">Загрузка…</p> : <Outlet />}
+      </main>
     </>
   )
 }

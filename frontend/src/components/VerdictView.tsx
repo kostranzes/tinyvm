@@ -1,51 +1,11 @@
-import { useState } from 'react'
-import { Link } from 'react-router'
-import { api, describeError } from '../api'
 import type { SubmitResult } from '../api'
 import { VERDICT_TEXT } from './verdict-text'
-import { useAuth } from '../auth/auth-context'
 
 function show(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
-export function SubmitPanel({ slug, source }: { slug: string; source: string }) {
-  const { user } = useAuth()
-  const [pending, setPending] = useState(false)
-  const [result, setResult] = useState<SubmitResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSubmit() {
-    setPending(true)
-    setError(null)
-    try {
-      setResult(await api.submit(slug, source))
-    } catch (e) {
-      setResult(null)
-      setError(describeError(e))
-    } finally {
-      setPending(false)
-    }
-  }
-
-  return (
-    <div className="submit-panel">
-      {user ? (
-        <button type="button" onClick={handleSubmit} disabled={pending}>
-          {pending ? 'Проверка…' : 'Отправить'}
-        </button>
-      ) : (
-        <p className="muted">
-          <Link to="/login">Войдите</Link>, чтобы отправить решение.
-        </p>
-      )}
-      {error && <p className="error">{error}</p>}
-      {result && <VerdictView result={result} />}
-    </div>
-  )
-}
-
-function VerdictView({ result }: { result: SubmitResult }) {
+export function VerdictView({ result }: { result: SubmitResult }) {
   const ok = result.verdict === 'accepted'
   const failed = result.failedTest
 

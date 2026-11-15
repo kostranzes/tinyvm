@@ -14,7 +14,6 @@ const theme = EditorView.theme(
       fontSize: '14px',
       color: 'var(--text)',
       backgroundColor: 'var(--bg)',
-      border: '1px solid var(--border)',
     },
     '&.cm-focused': {
       outline: '1px solid var(--text)',

@@ -406,54 +406,6 @@ pre {
   margin-left: 8px;
 }
 
-.run-result {
-  margin-top: 8px;
-}
-
-/* Таблица регистров: имя приглушённо, значение янтарным */
-.reg-table {
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.reg-table td {
-  padding: 2px 16px 2px 0;
-}
-
-.reg-table td:first-child {
-  color: var(--muted);
-}
-
-.reg-table td:last-child {
-  color: var(--accent);
-}
-
-.reg-table tr.changed td {
-  color: var(--bg);
-  background: var(--accent);
-  font-weight: 700;
-}
-
-/* Отладчик */
-.debug {
-  margin-top: 16px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
-}
-
-.debug-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.debug-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 12px;
-}
-
 .disasm {
   position: relative;
   max-height: 320px;
@@ -510,5 +462,252 @@ pre {
 }
 
 .fail-text {
+  color: var(--danger);
+}
+
+main.wide {
+  max-width: 1600px;
+}
+
+/* Описание задачи */
+.task-desc {
+  padding: 0 16px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.task-desc summary {
+  margin: 0 -16px 12px;
+  padding: 8px 16px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+/* Панель кнопок */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+/* Три колонки */
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr) minmax(0, 1.3fr);
+  gap: 12px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+.bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+@media (max-width: 1100px) {
+  .workspace,
+  .bottom {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.panel-head {
+  padding: 8px 12px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head::before {
+  content: '● ';
+  color: var(--text);
+}
+
+.panel-head.sub {
+  border-top: 1px solid var(--border);
+}
+
+.panel-body {
+  padding: 10px 12px;
+}
+
+.bottom-body {
+  height: 200px;
+  overflow: auto;
+}
+
+.panel .disasm {
+  max-height: 240px;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Регистры */
+.reg-group-title {
+  margin: 12px 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.reg-group-title:first-child {
+  margin-top: 0;
+}
+
+.reg {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  padding: 3px 8px;
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.reg-name {
+  font-weight: 600;
+}
+
+.reg-val {
+  color: var(--accent);
+  text-align: center;
+}
+
+.reg-dec {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.reg.rip {
+  background: rgba(255, 176, 0, 0.1);
+  border-color: var(--accent);
+}
+
+.reg.changed {
+  background: rgba(255, 176, 0, 0.22);
+  border-color: var(--accent);
+}
+
+.flags {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.flag {
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.flag::before {
+  content: '● ';
+  opacity: 0.3;
+}
+
+.flag.on {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.flag.on::before {
+  opacity: 1;
+}
+
+/* Память */
+.mem-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mem-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mem-controls input {
+  width: 120px;
+}
+
+.mem-controls input[type='number'] {
+  width: 80px;
+}
+
+.mem-dump {
+  max-height: 460px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-size: 11px;
+}
+
+.mem-row {
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.mem-addr {
+  color: var(--muted);
+}
+
+.mem-bytes span {
+  margin-right: 4px;
+}
+
+.mem-bytes .zero {
+  color: #1f6b3a;
+}
+
+.mem-ascii {
+  padding-left: 10px;
+  color: var(--muted);
+  border-left: 1px solid var(--border);
+}
+
+/* Журнал */
+.log-line {
+  font-size: 12px;
+}
+
+.log-line .time {
+  color: var(--muted);
+}
+
+.log-line.err {
   color: var(--danger);
 }
