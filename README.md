@@ -39,7 +39,7 @@ the backend can isolate it, limit its resources and terminate it independently.
 - Node.js, Express 5, TypeScript, `zod`, vitest
 - PostgreSQL
 - Docker (isolation of NASM and the engine)
-- React and TypeScript with Vite (frontend)
+- React 19 and TypeScript with Vite, React Router, CodeMirror 6 (frontend)
 
 ## Repository layout
 
@@ -47,7 +47,7 @@ the backend can isolate it, limit its resources and terminate it independently.
 |---|---|
 | [`engine/`](engine/) | The C engine: VM core, disassembler, session protocol, tests, `Dockerfile` |
 | [`backend/`](backend/) | Node.js and TypeScript API: accounts, running code, debug sessions, tasks, judging |
-| `frontend/` | React and TypeScript web client (Vite) |
+| [`frontend/`](frontend/) | React and TypeScript web client (Vite): editor, run panel, debugger, submissions |
 | `database/` | PostgreSQL setup (Docker Compose) |
 
 ## Status
@@ -56,7 +56,7 @@ the backend can isolate it, limit its resources and terminate it independently.
 |---|---|
 | Engine | Complete: VM, disassembler, session protocol 1.2, process restrictions, 4 test suites |
 | Backend | Complete for the MVP: accounts, `/api/run`, debug sessions, 4 tasks with hidden tests, submission history, rate limits, unit and end-to-end tests |
-| Frontend | Not started (Vite template) |
+| Frontend | Complete for the MVP: sign in, task list, code editor with NASM highlighting, run panel, step debugger with memory viewer, submissions and history. No automated tests |
 | Database | PostgreSQL 17 with SQL migrations |
 
 ## Quick start
@@ -81,12 +81,17 @@ npm install
 # create backend/.env with DATABASE_URL=postgresql://tinyvm:PASSWORD@127.0.0.1:5433/tinyvm
 npm run migrate
 npm run dev          # http://localhost:3000
+cd ..
 
 # 4. Frontend (in another terminal)
 cd frontend
 npm install
 npm run dev          # http://localhost:5173
 ```
+
+Open the site as `http://localhost:5173`. Use `localhost`, not `127.0.0.1`: the backend
+allows exactly one browser origin (`CORS_ORIGIN`), and the dev server must keep port
+5173.
 
 Check that the backend works:
 
@@ -108,12 +113,18 @@ npm test
 
 # Backend end-to-end tests: needs a running backend, both images and a migrated database
 TINYVM_E2E=1 npm test
+
+# Frontend (from frontend/): type check and lint; there are no automated tests yet
+npx tsc -b
+npm run lint
 ```
 
 ## Documentation
 
 - [`backend/README.md`](backend/README.md): setup, configuration, the complete HTTP API,
   tasks, security model
+- [`frontend/README.md`](frontend/README.md): running the client, configuration, pages,
+  source layout, how the editor, API client and debugger work
 - [`engine/README.md`](engine/README.md): building, testing, sanitizers, configuration
   and the engine security model
 - [`engine/PROTOCOL.md`](engine/PROTOCOL.md): the session protocol the backend uses to
@@ -126,5 +137,5 @@ Both run in containers without network or host file access, with read-only root
 filesystems, dropped capabilities and memory, CPU and process limits. Emulation alone
 is not a security boundary, so the container is. The backend adds accounts, per-user
 session and rate limits, and keeps hidden test data on the server. Deployment
-(HTTPS, secure cookies, access to the Docker daemon) is not covered yet; see the
-known limitations in [`backend/README.md`](backend/README.md).
+(HTTPS, secure cookies, access to the Docker daemon, serving the built frontend) is not
+covered yet; see the known limitations in [`backend/README.md`](backend/README.md).
