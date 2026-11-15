@@ -307,7 +307,7 @@ tests/                vitest: unit tests and optional e2e
   which is powerful; behind a reverse proxy set `trust proxy`, `COOKIE_SECURE=true`
   and `CORS_ORIGIN`, and forward WebSocket upgrades to the chat port (or use `wss://`).
 - Chat: the history lives in memory and disappears on restart; names are not bound
-  to accounts, so anyone can take any free name; there is no `wss://` yet and no
+  to accounts, so anyone can take any free name; wss:// is available only through the reverse proxy (see the root README) and no
   automated test for the chat.
 - `npm run dev` (`tsx watch`) does not exit after a startup failure such as an
   occupied port; it waits for a file change. `node dist/index.js` exits with code 1.

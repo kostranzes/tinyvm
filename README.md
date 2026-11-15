@@ -52,7 +52,8 @@ the backend can isolate it, limit its resources and terminate it independently.
 | [`engine/`](engine/) | The C engine: VM core, disassembler, session protocol, tests, `Dockerfile` |
 | [`backend/`](backend/) | Node.js and TypeScript API: accounts, running code, debug sessions, tasks, judging, WebSocket support chat |
 | [`frontend/`](frontend/) | React and TypeScript web client (Vite): editor, registers and memory panels, debugger, submissions, support chat |
-| `database/` | PostgreSQL setup (Docker Compose) |
+| [`database/`](database/) | PostgreSQL setup (Docker Compose) |
+| [`deploy/`](deploy/) | Caddy reverse proxy: local HTTPS (`https://localhost`), static frontend, `/api` and `/ws` proxying |
 
 ## Status
 
@@ -108,6 +109,46 @@ curl -s localhost:3000/api/tasks
 
 `.env` files contain secrets and must never be committed.
 
+## Local HTTPS deployment
+
+One address, `https://localhost`, served by Caddy in a container: the built frontend,
+`/api` proxied to the backend and `/ws` proxied to the chat (so the chat runs over
+`wss://`). The backend stays on the host because it needs the Docker CLI.
+
+Prerequisites: steps 1-3 of the Quick start (database, Docker images, `npm run migrate`).
+
+```bash
+# 1. Build the frontend (frontend/.env.production holds the public URLs)
+cd frontend && npm install && npm run build && cd ..
+
+# 2. Build and run the backend behind the proxy
+cd backend
+npm run build
+CORS_ORIGIN=https://localhost COOKIE_SECURE=true npm start
+
+# 3. In another terminal: start Caddy
+cd deploy && docker compose up -d
+```
+
+Caddy issues a certificate from its own local CA, so the browser must trust it once:
+
+```bash
+docker cp tinyvm-caddy:/data/caddy/pki/authorities/local/root.crt ~/caddy-local-root.crt
+```
+
+Import `caddy-local-root.crt` into the trusted root certificate authorities of the
+system or browser. The certificate lives in the `deploy_tinyvm_caddy_data` volume;
+`docker compose down -v` deletes it and the import has to be repeated. On Windows 
+with WSL2 copy the file to a Windows folder (for example /mnt/c/Users/<name>/Downloads/)
+and import it with the Windows certificate manager; Edge and Chrome use that store,
+Firefox has its own.
+
+On Docker Desktop (Windows with WSL2) Caddy reaches the backend through
+`host.docker.internal`; ports 80 and 443 must be free. Open `https://localhost`, not
+`localhost:5173`. The backend still listens on `:3000` and `:8080` directly; with
+`trust proxy` enabled, a client that bypasses Caddy can spoof `X-Forwarded-For` and
+get around per-IP rate limits.
+
 ## Tests
 
 ```bash
@@ -142,6 +183,9 @@ The engine executes untrusted machine code, and NASM processes untrusted source.
 Both run in containers without network or host file access, with read-only root
 filesystems, dropped capabilities and memory, CPU and process limits. Emulation alone
 is not a security boundary, so the container is. The backend adds accounts, per-user
-session and rate limits, and keeps hidden test data on the server. Deployment (HTTPS and `wss://`, secure cookies, access to the Docker daemon, serving the
-built frontend, proxying the chat port) is not covered yet; see the known limitations in
+session and rate limits, and keeps hidden test data on the server.
+
+Local HTTPS deployment (Caddy, `wss://`, secure cookies, built frontend) is described
+above. A public deployment (real domain, secrets management, backups, access to the
+Docker daemon) is not covered yet; see the known limitations in
 [`backend/README.md`](backend/README.md).
