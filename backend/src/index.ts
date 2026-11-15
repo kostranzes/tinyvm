@@ -13,6 +13,8 @@ import { generalLimiter, heavyLimiter } from './rate-limit.js';
 import { authRouter } from './auth-router.js';
 import { requireAuth } from './auth-middleware.js';
 import { meRouter } from './me-router.js';
+import { startChatServer } from './chat.js';
+import type { ChatServer } from './chat.js';
 
 const app = express();
 
@@ -154,8 +156,23 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(status).json({ status: 'error', error: 'bad_request' });
 });
 
-const server = app.listen(config.port, () => {
+// Чат службы поддержки (WebSocket) на своём порту. Origin тот же, что в CORS.
+let chat: ChatServer;
+try {
+  chat = await startChatServer({ port: config.chatPort, allowedOrigin: config.corsOrigin });
+} catch (error) {
+  console.error(`Не удалось запустить чат на порту ${config.chatPort}:`, error);
+  process.exit(1);
+}
+
+const server = app.listen(config.port, (error?: Error) => {
+  // В Express 5 ошибка запуска (например, EADDRINUSE) приходит сюда, а не бросается.
+  if (error) {
+    console.error(`Не удалось запустить HTTP-сервер на порту ${config.port}:`, error);
+    process.exit(1);
+  }
   console.log(`TinyVM backend: http://localhost:${config.port}`);
+  console.log(`TinyVM chat: ws://localhost:${chat.port}`);
 });
 
 let shuttingDown = false;
@@ -170,6 +187,7 @@ function shutdown(signal: string): void {
 
   server.close(async () => {
     try {
+      await chat.close();
       await closeAllSessions();
       await pool.end();
       process.exit(0);

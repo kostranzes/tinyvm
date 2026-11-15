@@ -13,6 +13,7 @@ const schema = z.object({
   RATE_LIMIT_HEAVY_PER_MIN: z.coerce.number().int().min(1).default(30),
   COOKIE_SECURE: z.enum(['true', 'false']).default('false'),
   RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().min(1).default(10),
+  CHAT_PORT: z.coerce.number().int().min(1).max(65535).default(8080),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -36,4 +37,5 @@ export const config = {
   rateLimitHeavyPerMin: parsed.data.RATE_LIMIT_HEAVY_PER_MIN,
   cookieSecure: parsed.data.COOKIE_SECURE === 'true',
   rateLimitAuthPerMin: parsed.data.RATE_LIMIT_AUTH_PER_MIN,
+  chatPort: parsed.data.CHAT_PORT,
 };
