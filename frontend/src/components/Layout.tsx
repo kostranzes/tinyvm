@@ -22,6 +22,7 @@ export function Layout() {
           <span className="brand-sub">x86-64 · NASM · отладчик</span>
         </Link>
         <nav>
+          <Link to="/support">Поддержка</Link>
           {loading ? null : user ? (
             <>
               <Link to="/submissions">Мои отправки</Link>

@@ -711,3 +711,126 @@ main.wide {
 .log-line.err {
   color: var(--danger);
 }
+
+/* Чат поддержки */
+.chat {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.chat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-title {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chat-status {
+  padding: 1px 8px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.chat-status.online {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.chat-status.offline {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 420px;
+  padding: 12px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.chat-msg {
+  max-width: 75%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+}
+
+.chat-msg.self {
+  align-self: flex-end;
+  background: rgba(25, 255, 95, 0.08);
+  border-color: var(--text);
+}
+
+.chat-msg.other {
+  align-self: flex-start;
+  background: var(--panel);
+}
+
+.chat-msg.system {
+  align-self: center;
+  max-width: 100%;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+  text-align: center;
+  border: 0;
+}
+
+.chat-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.chat-sender {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.chat-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-typing {
+  height: 24px;
+  padding: 2px 12px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.chat-error {
+  padding: 0 12px 8px;
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-input input {
+  flex: 1;
+}
