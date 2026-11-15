@@ -17,7 +17,8 @@ export function Layout() {
     <>
       <header className="app-header">
         <Link to="/" className="brand">
-          TinyVM
+          <span className="brand-name">TinyVM</span>
+          <span className="brand-sub">x86-64 · NASM · отладчик</span>
         </Link>
         <nav>
           {loading ? null : user ? (

@@ -1,13 +1,18 @@
 :root {
   color-scheme: dark;
-  --bg: #0f1115;
-  --panel: #171a21;
-  --border: #2a2f3a;
-  --text: #e6e8ec;
-  --muted: #8b93a1;
-  --accent: #4f8cff;
-  --danger: #ff6b6b;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --bg: #050805;
+  --panel: #091109;
+  --panel-2: #0c170c;
+  --border: #0f4d24;
+  --line: #12803a;
+  --text: #19ff5f;
+  --muted: #3fa066;
+  --accent: #ffb000;
+  --danger: #ff5f56;
+  --glow: 0 0 8px rgba(25, 255, 95, 0.35);
+  --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'SF Mono', Menlo, Consolas,
+    'Courier New', monospace;
+  font-family: var(--mono);
 }
 
 * {
@@ -16,32 +21,106 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--text);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(25, 255, 95, 0.06), transparent 60%),
+    var(--bg);
+}
+
+/* Линии развёртки. Чтобы убрать эффект, удалите этот блок. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.16) 3px
+  );
+}
+
+::selection {
+  color: var(--bg);
+  background: var(--text);
 }
 
 a {
-  color: var(--accent);
+  color: var(--text);
   text-decoration: none;
+  border-bottom: 1px dotted var(--line);
 }
 
 a:hover {
-  text-decoration: underline;
+  text-shadow: var(--glow);
+  border-bottom-style: solid;
 }
 
+h1,
+h2,
+h3 {
+  font-weight: 600;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  text-shadow: var(--glow);
+}
+
+/* Заголовок раздела как заголовок панели */
+h2 {
+  margin: 28px 0 10px;
+  padding-bottom: 6px;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+h2::before {
+  content: '◆ ';
+  color: var(--text);
+}
+
+/* Шапка */
 .app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
+  padding: 14px 24px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 
+.app-header a {
+  border-bottom: 0;
+}
+
 .app-header .brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.brand-name {
+  font-size: 24px;
   font-weight: 700;
-  font-size: 18px;
-  color: var(--text);
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 10px rgba(25, 255, 95, 0.55);
+}
+
+.brand-sub {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
 }
 
 .app-header nav {
@@ -55,23 +134,25 @@ a:hover {
 }
 
 main {
-  max-width: 960px;
+  max-width: 1000px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 28px 24px 48px;
 }
 
+/* Карточка входа */
 .card {
-  max-width: 380px;
+  max-width: 400px;
   margin: 48px auto;
   padding: 24px;
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--line);
+  box-shadow: var(--glow);
 }
 
 .card h1 {
   margin: 0 0 16px;
-  font-size: 22px;
+  font-size: 18px;
+  text-transform: uppercase;
 }
 
 .form {
@@ -84,55 +165,76 @@ main {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 14px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
 input {
-  padding: 9px 10px;
+  padding: 8px 10px;
   font: inherit;
-  color: var(--text);
+  color: var(--accent);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
+}
+
+input::placeholder {
+  color: #1f5f38;
 }
 
 input:focus {
-  outline: 2px solid var(--accent);
+  outline: 1px solid var(--text);
   outline-offset: -1px;
+  box-shadow: var(--glow);
 }
 
+/* Кнопки */
 button {
-  padding: 9px 14px;
+  padding: 8px 16px;
   font: inherit;
-  color: #fff;
-  background: var(--accent);
-  border: 0;
-  border-radius: 6px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(25, 255, 95, 0.08);
+  border: 1px solid var(--text);
+  border-radius: 0;
   cursor: pointer;
 }
 
+button:hover:not(:disabled) {
+  background: rgba(25, 255, 95, 0.2);
+  box-shadow: var(--glow);
+}
+
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.4;
   cursor: default;
 }
 
 button.secondary {
-  color: var(--text);
+  color: var(--muted);
   background: transparent;
-  border: 1px solid var(--border);
+  border-color: var(--line);
+}
+
+button.secondary:hover:not(:disabled) {
+  color: var(--text);
 }
 
 .error {
   margin: 0;
   color: var(--danger);
-  font-size: 14px;
+  font-size: 13px;
 }
 
-h1 .badge {
-  vertical-align: middle;
+.pre-wrap {
+  white-space: pre-wrap;
 }
 
+/* Список задач и бейджи */
 .task-list {
   display: flex;
   flex-direction: column;
@@ -147,24 +249,27 @@ h1 .badge {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  color: var(--text);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
 .task-list a:hover {
-  text-decoration: none;
-  border-color: var(--accent);
+  border-color: var(--text);
+  box-shadow: var(--glow);
 }
 
 .badge {
-  padding: 2px 8px;
-  font-size: 12px;
+  padding: 1px 8px;
+  font-size: 11px;
   font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+
+h1 .badge {
+  vertical-align: middle;
 }
 
 .description {
@@ -175,10 +280,11 @@ pre {
   margin: 0;
   padding: 12px;
   overflow-x: auto;
+  font-family: var(--mono);
   font-size: 13px;
+  color: var(--text);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
 }
 
 .test {
@@ -187,7 +293,8 @@ pre {
 
 .test h3 {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .test-grid {
@@ -196,6 +303,7 @@ pre {
   gap: 12px;
 }
 
+/* Отправка и вердикт */
 .submit-panel {
   margin-top: 12px;
 }
@@ -206,11 +314,11 @@ pre {
   background: var(--panel);
   border: 1px solid var(--border);
   border-left-width: 4px;
-  border-radius: 6px;
 }
 
 .verdict-ok {
-  border-left-color: #3fb950;
+  border-left-color: var(--text);
+  box-shadow: var(--glow);
 }
 
 .verdict-fail {
@@ -221,7 +329,6 @@ pre {
   width: 100%;
   margin-top: 8px;
   border-collapse: collapse;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 13px;
 }
 
@@ -232,26 +339,37 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 
-.pre-wrap {
-  white-space: pre-wrap;
+.verdict th {
+  font-weight: 400;
+  color: var(--muted);
 }
 
+/* Панель запуска */
 .run-panel {
   margin-top: 16px;
-  padding: 12px 16px;
+  padding: 0 16px 16px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
 .run-panel summary {
-  cursor: pointer;
+  margin: 0 -16px;
+  padding: 10px 16px;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
 }
 
 .run-panel h3 {
-  margin: 16px 0 8px;
-  font-size: 14px;
+  margin: 18px 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -259,7 +377,7 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .reg-grid {
@@ -284,13 +402,17 @@ pre {
   margin-top: 12px;
 }
 
+.run-panel > button + button {
+  margin-left: 8px;
+}
+
 .run-result {
   margin-top: 8px;
 }
 
+/* Таблица регистров: имя приглушённо, значение янтарным */
 .reg-table {
   border-collapse: collapse;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 13px;
 }
 
@@ -302,10 +424,17 @@ pre {
   color: var(--muted);
 }
 
-.run-panel > button + button {
-  margin-left: 8px;
+.reg-table td:last-child {
+  color: var(--accent);
 }
 
+.reg-table tr.changed td {
+  color: var(--bg);
+  background: var(--accent);
+  font-weight: 700;
+}
+
+/* Отладчик */
 .debug {
   margin-top: 16px;
   padding-top: 4px;
@@ -329,11 +458,9 @@ pre {
   position: relative;
   max-height: 320px;
   overflow: auto;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 13px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
 }
 
 .disasm-row {
@@ -348,15 +475,16 @@ pre {
 }
 
 .disasm-row.current {
-  background: #1f2a44;
+  color: var(--accent);
+  background: rgba(255, 176, 0, 0.12);
   border-left-color: var(--accent);
 }
 
-.reg-table tr.changed td:last-child {
-  color: #e5c07b;
-  font-weight: 600;
+.disasm-row.current .addr {
+  color: var(--accent);
 }
 
+/* История отправок */
 .history {
   width: 100%;
   border-collapse: collapse;
@@ -369,8 +497,16 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 
+.history th {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .ok-text {
-  color: #3fb950;
+  color: var(--text);
 }
 
 .fail-text {
