@@ -61,6 +61,19 @@ export interface SubmitResult {
   }
 }
 
+export interface SubmissionSummary {
+  id: number
+  task: string
+  verdict: Verdict
+  instructionCount?: number | null
+  createdAt: string
+}
+
+export interface SubmissionDetail extends SubmissionSummary {
+  source: string
+  details?: unknown
+}
+
 export interface RunRequest {
   source: string
   registers?: Record<string, string>
@@ -178,6 +191,10 @@ export const api = {
     ),
   deleteSession: (id: string) =>
     request<{ status: string }>('DELETE', `/api/sessions/${encodeURIComponent(id)}`),
+  mySubmissions: () =>
+    request<{ submissions: SubmissionSummary[] }>('GET', '/api/me/submissions'),
+  mySubmission: (id: string) =>
+    request<Record<string, unknown>>('GET', `/api/me/submissions/${encodeURIComponent(id)}`),
 }
 
 // Текст ошибки для пользователя.
@@ -224,6 +241,10 @@ export function describeError(error: unknown): string {
       return 'У вас уже 2 сессии отладки. Закройте лишние или подождите до 5 минут.'
     case 'too_many_sessions':
       return 'На сервере слишком много сессий отладки. Попробуйте позже.'
+    case 'submission_not_found':
+      return 'Такой отправки нет.'
+    case 'not_found':
+      return 'Не найдено.'
     default:
       return `Ошибка сервера (${error.status}: ${error.code}).`
   }

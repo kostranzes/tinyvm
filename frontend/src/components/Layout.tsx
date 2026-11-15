@@ -22,6 +22,7 @@ export function Layout() {
         <nav>
           {loading ? null : user ? (
             <>
+              <Link to="/submissions">Мои отправки</Link>
               <span className="muted">{user.email}</span>
               <button type="button" className="secondary" onClick={handleLogout}>
                 Выйти

@@ -356,3 +356,23 @@ pre {
   color: #e5c07b;
   font-weight: 600;
 }
+
+.history {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history th,
+.history td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.ok-text {
+  color: #3fb950;
+}
+
+.fail-text {
+  color: var(--danger);
+}

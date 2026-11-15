@@ -1,16 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { api, describeError } from '../api'
-import type { SubmitResult, Verdict } from '../api'
+import type { SubmitResult } from '../api'
+import { VERDICT_TEXT } from './verdict-text'
 import { useAuth } from '../auth/auth-context'
-
-const VERDICT_TEXT: Record<Verdict, string> = {
-  accepted: 'Принято',
-  wrong_answer: 'Неверный ответ',
-  runtime_error: 'Ошибка выполнения',
-  limit_exceeded: 'Превышен лимит инструкций',
-  assembly_error: 'Ошибка сборки',
-}
 
 function show(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value)
