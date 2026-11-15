@@ -33,11 +33,29 @@ function str(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
+function parseHistory(value: unknown): ChatMessage[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item): ChatMessage[] => {
+    if (typeof item !== 'object' || item === null) return []
+    const o = item as Record<string, unknown>
+    return [
+      {
+        id: str(o.id),
+        kind: 'message',
+        sender: str(o.sender),
+        text: str(o.message),
+        timestamp: str(o.timestamp),
+      },
+    ]
+  })
+}
+
 export function useChat() {
   const [status, setStatus] = useState<ChatStatus>('idle')
   const [name, setName] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [typing, setTyping] = useState<string[]>([])
+  const [users, setUsers] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const socketRef = useRef<WebSocket | null>(null)
@@ -172,6 +190,17 @@ export function useChat() {
           setName(str(msg.name))
           setStatus('online')
           break
+        case 'history':
+          // Заменяет список целиком: так при повторном входе нет дублей.
+          setMessages(parseHistory(msg.messages))
+          break
+        case 'users':
+          setUsers(
+            Array.isArray(msg.users)
+              ? msg.users.filter((u): u is string => typeof u === 'string')
+              : [],
+          )
+          break
         case 'message': {
           const sender = str(msg.sender)
           pushMessage({
@@ -208,6 +237,7 @@ export function useChat() {
       if (socketRef.current !== ws) return
       socketRef.current = null
       clearAllTyping()
+      setUsers([])
       resetMyTyping()
       if (joinedRef.current) {
         joinedRef.current = false
@@ -231,6 +261,7 @@ export function useChat() {
     setStatus('idle')
     setName(null)
     setMessages([])
+    setUsers([])
     setError(null)
   }
 
@@ -244,5 +275,5 @@ export function useChat() {
     return true
   }
 
-  return { status, name, messages, typing, error, join, leave, send, notifyTyping }
+  return { status, name, messages, typing, users, error, join, leave, send, notifyTyping }
 }

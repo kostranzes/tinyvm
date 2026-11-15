@@ -28,6 +28,7 @@ const JOIN_TIMEOUT_MS = 30_000
 const PING_INTERVAL_MS = 30_000
 const RATE_WINDOW_MS = 10_000
 const RATE_MAX = 30 // кадров за окно на соединение
+const MAX_HISTORY = 50 // сколько последних сообщений получает новый участник
 
 const ERRORS = {
   invalid_message: 'Некорректное сообщение.',
@@ -62,8 +63,18 @@ function normalizeName(raw: string): string | null {
   return name
 }
 
+interface HistoryEntry {
+  type: 'message'
+  sender: string
+  message: string
+  timestamp: string
+  id: string
+}
+
 export async function startChatServer(options: ChatOptions): Promise<ChatServer> {
   const clients = new Map<WebSocket, Client>()
+  // Последние сообщения для новых участников. Хранятся в памяти и пропадают при перезапуске.
+  const history: HistoryEntry[] = []
 
   const wss = new WebSocketServer({
     port: options.port,
@@ -119,6 +130,14 @@ export async function startChatServer(options: ChatOptions): Promise<ChatServer>
     return false
   }
 
+  // Список имён вошедших участников рассылается всем при каждом входе и выходе.
+  function broadcastUsers() {
+    const users = [...clients.values()]
+      .flatMap((c) => (c.name === null ? [] : [c.name]))
+      .sort((a, b) => a.localeCompare(b))
+    broadcast({ type: 'users', users })
+  }
+
   function rateLimited(client: Client): boolean {
     const now = Date.now()
     client.hits = client.hits.filter((t) => now - t < RATE_WINDOW_MS)
@@ -170,12 +189,14 @@ export async function startChatServer(options: ChatOptions): Promise<ChatServer>
           client.name = name
           clearTimeout(client.joinTimer)
           send(ws, { type: 'joined', name })
+          send(ws, { type: 'history', messages: history })
           send(ws, {
             type: 'system',
             message: `Добро пожаловать, ${name}!`,
             timestamp: new Date().toISOString(),
             id: randomUUID(),
           })
+          broadcastUsers()
           broadcastSystem(`${name} вошёл в чат`)
           break
         }
@@ -185,13 +206,16 @@ export async function startChatServer(options: ChatOptions): Promise<ChatServer>
           const text = msg.message.trim()
           if (text === '') return
           if (text.length > MAX_TEXT) return sendError(ws, 'message_too_long')
-          broadcast({
+          const entry: HistoryEntry = {
             type: 'message',
             sender: client.name,
             message: text,
             timestamp: new Date().toISOString(),
             id: randomUUID(),
-          })
+          }
+          history.push(entry)
+          if (history.length > MAX_HISTORY) history.shift()
+          broadcast(entry)
           break
         }
 
@@ -213,6 +237,7 @@ export async function startChatServer(options: ChatOptions): Promise<ChatServer>
       )
       if (client.name !== null) {
         broadcast({ type: 'typing', name: client.name, isTyping: false })
+        broadcastUsers()
         broadcastSystem(`${client.name} покинул чат`)
       }
     })

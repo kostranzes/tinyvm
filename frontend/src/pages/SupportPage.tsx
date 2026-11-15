@@ -111,7 +111,14 @@ export function SupportPage() {
           Выйти из чата
         </button>
       </div>
-
+      <div className="chat-users">
+        <span className="muted">Онлайн ({chat.users.length}):</span>
+        {chat.users.map((u) => (
+          <span key={u} className={u === chat.name ? 'chat-user me' : 'chat-user'}>
+            {u}
+          </span>
+        ))}
+      </div>
       <div className="chat-messages" ref={listRef}>
         {messages.map((m) =>
           m.kind === 'system' ? (

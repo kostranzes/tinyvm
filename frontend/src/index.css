@@ -834,3 +834,23 @@ main.wide {
 .chat-input input {
   flex: 1;
 }
+
+.chat-users {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-user {
+  padding: 0 8px;
+  border: 1px solid var(--line);
+}
+
+.chat-user.me {
+  color: var(--accent);
+  border-color: var(--accent);
+}
