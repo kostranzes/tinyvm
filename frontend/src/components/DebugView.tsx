@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, api, describeError } from '../api'
 import type { DebugCreated, EngineState } from '../api'
+import { hexDump } from './format'
 
 interface Row {
   address: string
@@ -50,6 +51,17 @@ interface Props {
   onClose: () => void
 }
 
+interface Watch {
+  address: string
+  size: number
+}
+
+interface MemoryView {
+  watch: Watch
+  data: string | null
+  error: string | null
+}
+
 export function DebugView({ initial, onClose }: Props) {
   const id = String(initial.sessionId)
   const [view, setView] = useState<View>({
@@ -61,6 +73,27 @@ export function DebugView({ initial, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [dead, setDead] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  const [memAddr, setMemAddr] = useState('0x110000')
+  const [memSize, setMemSize] = useState('64')
+  const [memory, setMemory] = useState<MemoryView | null>(null)
+
+  async function readMemory(watch: Watch) {
+    try {
+      const r = await api.sessionMemory(id, watch.address, watch.size)
+      const failed = r.error !== null && r.error !== undefined
+      setMemory({
+        watch,
+        data: !failed && typeof r.data === 'string' ? r.data : null,
+        error: failed ? JSON.stringify(r.error) : null,
+      })
+    } catch (e) {
+      setMemory({ watch, data: null, error: describeError(e) })
+    }
+  }
+
+  function handleReadMemory() {
+    void readMemory({ address: memAddr.trim(), size: Number(memSize) })
+  }
 
   // Прокрутить список так, чтобы текущая инструкция была посередине.
   useEffect(() => {
@@ -76,6 +109,7 @@ export function DebugView({ initial, onClose }: Props) {
       await action()
       const r = await api.sessionState(id)
       setView((v) => ({ state: r.state, prev: v.state.registers, rows: toRows(r.disassembly) }))
+      if (memory) await readMemory(memory.watch)
     } catch (e) {
       if (e instanceof ApiError && (e.code === 'session_lost' || e.code === 'session_not_found')) {
         setDead(true)
@@ -149,6 +183,30 @@ export function DebugView({ initial, onClose }: Props) {
           </table>
         </div>
       </div>
+      <h3>Память</h3>
+      <div className="field-row">
+        <label>
+          <span className="muted">Адрес</span>
+          <input value={memAddr} onChange={(e) => setMemAddr(e.target.value)} spellCheck={false} />
+        </label>
+        <label>
+          <span className="muted">Размер (байт, до 4096)</span>
+          <input
+            type="number"
+            min={1}
+            max={4096}
+            value={memSize}
+            onChange={(e) => setMemSize(e.target.value)}
+          />
+        </label>
+        <button type="button" onClick={handleReadMemory} disabled={busy || dead}>
+          Прочитать
+        </button>
+      </div>
+      {memory?.error && <p className="error">Ошибка чтения: {memory.error}</p>}
+      {memory?.data !== null && memory?.data !== undefined && (
+        <pre>{hexDump(memory.data, memory.watch.address)}</pre>
+      )}
     </div>
   )
 }

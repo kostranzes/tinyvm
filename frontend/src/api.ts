@@ -191,6 +191,12 @@ export const api = {
     ),
   deleteSession: (id: string) =>
     request<{ status: string }>('DELETE', `/api/sessions/${encodeURIComponent(id)}`),
+  sessionMemory: (id: string, address: string, size: number) =>
+    request<MemoryRead & { status: string }>(
+      'POST',
+      `/api/sessions/${encodeURIComponent(id)}/memory`,
+      { address, size },
+    ),
   mySubmissions: () =>
     request<{ submissions: SubmissionSummary[] }>('GET', '/api/me/submissions'),
   mySubmission: (id: string) =>

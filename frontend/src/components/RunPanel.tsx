@@ -4,6 +4,7 @@ import { ApiError, api, describeError } from '../api'
 import type { DebugCreated, RunRequest, RunResult } from '../api'
 import { useAuth } from '../auth/auth-context'
 import { DebugView } from './DebugView'
+import { hexDump } from './format'
 
 // Регистры, которые движок разрешает записывать.
 const WRITABLE = [
@@ -14,16 +15,6 @@ const WRITABLE = [
 function show(value: unknown): string {
   if (value === null || value === undefined) return '—'
   return typeof value === 'string' ? value : JSON.stringify(value)
-}
-
-// 16 байт на строку: "0a 00 00 ..."
-function hexDump(data: string): string {
-  const bytes = data.match(/../g) ?? []
-  const lines: string[] = []
-  for (let i = 0; i < bytes.length; i += 16) {
-    lines.push(bytes.slice(i, i + 16).join(' '))
-  }
-  return lines.join('\n')
 }
 
 function describeRunError(e: unknown): string {
