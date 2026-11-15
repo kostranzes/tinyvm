@@ -90,6 +90,14 @@ export interface RunResult {
   memory?: MemoryRead[]
 }
 
+export interface DebugCreated {
+  sessionId: string | number
+  codeSize: number
+  state: EngineState
+  // Формат инструкций в README не описан, разбирается в DebugView.
+  disassembly: unknown
+}
+
 // Ошибка запроса. status = 0 означает, что до сервера не достучались.
 export class ApiError extends Error {
   status: number
@@ -153,6 +161,23 @@ export const api = {
   submit: (slug: string, source: string) =>
     request<SubmitResult>('POST', `/api/tasks/${encodeURIComponent(slug)}/submit`, { source }),
   run: (req: RunRequest) => request<RunResult>('POST', '/api/run', req),
+  createSession: (req: Omit<RunRequest, 'readMemory'>) =>
+    request<DebugCreated>('POST', '/api/sessions', req),
+  sessionStep: (id: string, count: number) =>
+    request<{ steps: number; state: EngineState }>(
+      'POST',
+      `/api/sessions/${encodeURIComponent(id)}/step`,
+      { count },
+    ),
+  sessionRun: (id: string) =>
+    request<{ state: EngineState }>('POST', `/api/sessions/${encodeURIComponent(id)}/run`),
+  sessionState: (id: string) =>
+    request<{ state: EngineState; disassembly: unknown }>(
+      'GET',
+      `/api/sessions/${encodeURIComponent(id)}/state`,
+    ),
+  deleteSession: (id: string) =>
+    request<{ status: string }>('DELETE', `/api/sessions/${encodeURIComponent(id)}`),
 }
 
 // Текст ошибки для пользователя.
@@ -191,6 +216,14 @@ export function describeError(error: unknown): string {
       return 'Программа после сборки пустая.'
     case 'setup_failed':
       return 'Движок отклонил начальные данные.'
+    case 'session_not_found':
+      return 'Сессия отладки не найдена: она истекла или закрыта.'
+    case 'session_lost':
+      return 'Процесс движка завершился, сессия потеряна. Запустите отладку заново.'
+    case 'too_many_user_sessions':
+      return 'У вас уже 2 сессии отладки. Закройте лишние или подождите до 5 минут.'
+    case 'too_many_sessions':
+      return 'На сервере слишком много сессий отладки. Попробуйте позже.'
     default:
       return `Ошибка сервера (${error.status}: ${error.code}).`
   }

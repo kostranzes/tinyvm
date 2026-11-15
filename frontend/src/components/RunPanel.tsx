@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { ApiError, api, describeError } from '../api'
-import type { RunRequest, RunResult } from '../api'
+import type { DebugCreated, RunRequest, RunResult } from '../api'
 import { useAuth } from '../auth/auth-context'
+import { DebugView } from './DebugView'
 
 // Регистры, которые движок разрешает записывать.
 const WRITABLE = [
@@ -57,6 +58,40 @@ export function RunPanel({ source, defaultLimit }: Props) {
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<RunResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [debug, setDebug] = useState<DebugCreated | null>(null)
+  // id текущей сессии отладки, чтобы удалить её при уходе со страницы
+  const sessionRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      const id = sessionRef.current
+      if (id !== null) void api.deleteSession(id).catch(() => {})
+    }
+  }, [])
+
+  async function closeSession() {
+    const id = sessionRef.current
+    sessionRef.current = null
+    setDebug(null)
+    if (id !== null) await api.deleteSession(id).catch(() => {})
+  }
+
+  async function handleDebug() {
+    setPending(true)
+    setError(null)
+    try {
+      await closeSession()
+      const req = buildRequest()
+      delete req.readMemory
+      const created = await api.createSession(req)
+      sessionRef.current = String(created.sessionId)
+      setDebug(created)
+    } catch (e) {
+      setError(describeRunError(e))
+    } finally {
+      setPending(false)
+    }
+  }
 
   function buildRequest(): RunRequest {
     const registers = Object.fromEntries(
@@ -149,9 +184,14 @@ export function RunPanel({ source, defaultLimit }: Props) {
       </div>
 
       {user ? (
-        <button type="button" onClick={handleRun} disabled={pending}>
-          {pending ? 'Выполнение…' : 'Запустить'}
-        </button>
+        <>
+          <button type="button" onClick={handleRun} disabled={pending}>
+            {pending ? 'Выполнение…' : 'Запустить'}
+          </button>
+          <button type="button" className="secondary" onClick={handleDebug} disabled={pending}>
+            Отладить
+          </button>
+        </>
       ) : (
         <p className="muted">
           <Link to="/login">Войдите</Link>, чтобы запускать код.
@@ -160,6 +200,9 @@ export function RunPanel({ source, defaultLimit }: Props) {
 
       {error && <p className="error pre-wrap">{error}</p>}
       {result && <RunResultView result={result} />}
+      {debug && (
+        <DebugView key={String(debug.sessionId)} initial={debug} onClose={closeSession} />
+      )}
     </details>
   )
 }

@@ -301,3 +301,58 @@ pre {
 .reg-table td:first-child {
   color: var(--muted);
 }
+
+.run-panel > button + button {
+  margin-left: 8px;
+}
+
+.debug {
+  margin-top: 16px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.debug-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.debug-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.disasm {
+  position: relative;
+  max-height: 320px;
+  overflow: auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.disasm-row {
+  display: flex;
+  gap: 16px;
+  padding: 2px 10px;
+  border-left: 3px solid transparent;
+}
+
+.disasm-row .addr {
+  color: var(--muted);
+}
+
+.disasm-row.current {
+  background: #1f2a44;
+  border-left-color: var(--accent);
+}
+
+.reg-table tr.changed td:last-child {
+  color: #e5c07b;
+  font-weight: 600;
+}
